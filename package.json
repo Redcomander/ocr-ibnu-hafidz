@@ -1,0 +1,21 @@
+{
+  "name": "ocr-answer-reader",
+  "version": "1.0.0",
+  "description": "This tool reads a photo of a multiple-choice answer list and extracts answers for questions 1 to 35.",
+  "main": "ocr_reader.js",
+  "scripts": {
+    "start": "node server.js",
+    "scan": "node ocr_reader.js",
+    "test": "echo \"No tests configured\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
+  }
+}

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OCR Answer Reader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <main class="container">
+      <header class="hero">
+        <div class="hero-row">
+          <p class="badge">OCR + Scoring</p>
+          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">Dark Mode</button>
+        </div>
+        <h1>Answer Reader 1-35</h1>
+        <p>
+          Upload one image or many images. The app extracts answers and counts right vs wrong using your key.
+        </p>
+      </header>
+
+      <section class="key-section">
+        <article class="card">
+          <h2>Answer Key Management</h2>
+          <div class="key-status" id="key-status">Loading...</div>
+          <div class="form">
+            <button type="button" id="btn-download-template">Download Template</button>
+            <label>
+              Or Upload Custom Key
+              <input type="file" id="key-file-input" class="file-input" accept=".json,.csv,.txt" />
+            </label>
+            <button type="button" id="btn-upload-key">Upload Key</button>
+          </div>
+          <div id="key-output" class="output"></div>
+        </article>
+      </section>
+
+      <section class="key-section">
+        <article class="card">
+          <h2>Calibration Workbench</h2>
+          <p class="mini">Tune block positions, row spacing, and scoring thresholds live. These settings apply to the next scan.</p>
+          <div class="preset-bar">
+            <label>
+              Preset
+              <select id="preset-select" class="select-input"></select>
+            </label>
+            <label>
+              New preset name
+              <input type="text" id="preset-name" placeholder="example: camera-1" />
+            </label>
+            <button type="button" id="btn-save-preset">Save Preset</button>
+            <button type="button" id="btn-delete-preset">Delete Preset</button>
+            <button type="button" id="btn-reset-calibration">Reset Default</button>
+          </div>
+          <div id="calibration-form" class="calibration-form"></div>
+          <div id="calibration-output" class="output"></div>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Single Upload</h2>
+          <form id="single-form" class="form">
+            <label>
+              Image file
+              <input type="file" name="file" class="file-input" accept="image/*" required />
+            </label>
+            <label>
+              Total questions
+              <input type="number" name="total" min="1" value="35" />
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="debug" value="true" checked />
+              Show OCR debug view
+            </label>
+            <button type="submit">Scan Single</button>
+          </form>
+          <div id="single-output" class="output"></div>
+          <div id="single-debug" class="debug-panel"></div>
+        </article>
+
+        <article class="card">
+          <h2>Bulk Upload</h2>
+          <form id="bulk-form" class="form">
+            <label>
+              Multiple images
+              <input type="file" name="files" class="file-input" accept="image/*" multiple required />
+            </label>
+            <label>
+              Total questions
+              <input type="number" name="total" min="1" value="35" />
+            </label>
+            <button type="submit">Scan Bulk</button>
+          </form>
+          <div id="bulk-summary" class="summary"></div>
+          <div id="bulk-output" class="output"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
