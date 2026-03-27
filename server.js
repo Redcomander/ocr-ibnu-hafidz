@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
+const cors = require('cors');
 const multer = require('multer');
 const {
   DEFAULT_CALIBRATION,
@@ -32,6 +33,7 @@ function getKeyMap() {
 }
 
 app.use(express.json());
+app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/health', (_req, res) => {

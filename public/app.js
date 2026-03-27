@@ -1,6 +1,8 @@
 const PRESET_STORAGE_KEY = 'ocr-answer-reader-presets-v1';
 const DEFAULT_PRESET_NAME = '__default__';
 const THEME_STORAGE_KEY = 'ocr-answer-reader-theme';
+const APP_CONFIG = window.OCR_APP_CONFIG || {};
+const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
 
 const state = {
   calibration: null,
@@ -75,7 +77,7 @@ function saveStoredPresets() {
 }
 
 async function postForm(url, formData) {
-  const res = await fetch(url, {
+  const res = await fetch(buildApiUrl(url), {
     method: 'POST',
     body: formData,
   });
@@ -86,6 +88,16 @@ async function postForm(url, formData) {
   }
 
   return payload;
+}
+
+function buildApiUrl(path) {
+  if (!API_BASE_URL) {
+    return path;
+  }
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  return `${API_BASE_URL}${path}`;
 }
 
 function buildAnswerString(parsedAnswers) {
@@ -790,7 +802,7 @@ function applyPreset(name) {
 }
 
 async function loadDefaultCalibration(silent = false) {
-  const res = await fetch('/api/calibration/default');
+  const res = await fetch(buildApiUrl('/api/calibration/default'));
   const data = await res.json();
   state.calibration = deepClone(data.calibration);
   normalizeClientCalibration(state.calibration);
@@ -802,7 +814,7 @@ async function loadDefaultCalibration(silent = false) {
 
 async function loadKeyStatus() {
   try {
-    const res = await fetch('/api/answer-key/current');
+    const res = await fetch(buildApiUrl('/api/answer-key/current'));
     const data = await res.json();
     const statusEl = document.getElementById('key-status');
 
@@ -1059,7 +1071,7 @@ document.getElementById('btn-reset-calibration').addEventListener('click', async
 
 btnDownloadTemplate.addEventListener('click', async () => {
   try {
-    window.open('/api/answer-key/template?total=35', '_blank');
+    window.open(buildApiUrl('/api/answer-key/template?total=35'), '_blank');
     keyOutput.innerHTML = '<p class="good">Template download started.</p>';
   } catch (error) {
     keyOutput.innerHTML = `<p class="bad">Download failed: ${error.message}</p>`;
@@ -1077,7 +1089,7 @@ btnUploadKey.addEventListener('click', async () => {
     formData.append('file', keyFileInput.files[0]);
     formData.append('total', 35);
 
-    const res = await fetch('/api/answer-key/upload', {
+    const res = await fetch(buildApiUrl('/api/answer-key/upload'), {
       method: 'POST',
       body: formData,
     });
