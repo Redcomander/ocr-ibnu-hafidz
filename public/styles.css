@@ -231,6 +231,41 @@ button:focus {
   margin: -2px 0 2px;
 }
 
+.hidden {
+  display: none !important;
+}
+
+.scanner-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 10px;
+}
+
+.scanner-panel h3 {
+  margin: 0;
+  font-size: 14px;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.scanner-video {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: #111;
+  max-height: 48vh;
+  object-fit: cover;
+}
+
+.scanner-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .file-input::file-selector-button {
   border: 1px solid var(--line-strong);
   border-radius: 10px;

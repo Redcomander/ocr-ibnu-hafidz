@@ -14,6 +14,7 @@ const state = {
   overlayMode: 'overlay',
   previewRotation: 0,
   nudgeStep: 'fine',
+  scanSourceFile: null,
 };
 
 const dragState = {
@@ -1091,11 +1092,84 @@ const calibrationOutput = document.getElementById('calibration-output');
 const themeToggle = document.getElementById('theme-toggle');
 const singleFileInput = singleForm.querySelector('input[name="file"]');
 const bulkFileInput = bulkForm.querySelector('input[name="files"]');
+const btnOpenScanner = document.getElementById('btn-open-scanner');
+const scannerPanel = document.getElementById('scanner-panel');
+const scannerVideo = document.getElementById('scanner-video');
+const scannerCanvas = document.getElementById('scanner-canvas');
+const btnCaptureScan = document.getElementById('btn-capture-scan');
+const btnCloseScanner = document.getElementById('btn-close-scanner');
+const scannerStatus = document.getElementById('scanner-status');
+
+let scannerStream = null;
+
+function getSingleSourceFile() {
+  return state.scanSourceFile || singleFileInput.files?.[0] || null;
+}
+
+function hasSingleSourceFile() {
+  return Boolean(getSingleSourceFile());
+}
+
+async function startScanner() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    scannerStatus.textContent = 'Camera scanner is not supported on this browser/device.';
+    scannerPanel.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+      },
+      audio: false,
+    });
+    scannerVideo.srcObject = scannerStream;
+    scannerPanel.classList.remove('hidden');
+    scannerStatus.textContent = 'Camera ready. Position the sheet and tap Capture Scan.';
+  } catch (error) {
+    scannerPanel.classList.remove('hidden');
+    scannerStatus.textContent = `Unable to open camera: ${error.message || 'permission denied'}`;
+  }
+}
+
+function stopScanner() {
+  if (scannerStream) {
+    scannerStream.getTracks().forEach((track) => track.stop());
+    scannerStream = null;
+  }
+  scannerVideo.srcObject = null;
+}
+
+async function captureScannerImage() {
+  if (!scannerVideo.videoWidth || !scannerVideo.videoHeight) {
+    throw new Error('Camera is not ready yet.');
+  }
+
+  scannerCanvas.width = scannerVideo.videoWidth;
+  scannerCanvas.height = scannerVideo.videoHeight;
+  const context = scannerCanvas.getContext('2d', { alpha: false });
+  if (!context) {
+    throw new Error('Unable to capture camera frame.');
+  }
+
+  context.drawImage(scannerVideo, 0, 0, scannerCanvas.width, scannerCanvas.height);
+  const blob = await canvasToBlob(scannerCanvas, 'image/jpeg', 0.9);
+  if (!blob || blob.size === 0) {
+    throw new Error('Captured frame is empty.');
+  }
+
+  state.scanSourceFile = new File([blob], `scanner_capture_${Date.now()}.jpg`, {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  });
+  state.previewRotation = 0;
+}
 
 function buildSingleScanFormData() {
-  const sourceFile = singleFileInput.files?.[0];
+  const sourceFile = getSingleSourceFile();
   if (!sourceFile) {
-    throw new Error('Please select an image file first.');
+    throw new Error('Please select an image file or capture one with the scanner first.');
   }
 
   return optimizeImageForScan(sourceFile).then((optimizedFile) => {
@@ -1215,8 +1289,8 @@ singleDebug.addEventListener('click', (event) => {
   }
 
   if (target.id === 'btn-rotate-left' || target.id === 'btn-rotate-right' || target.id === 'btn-rotate-reset') {
-    if (!singleFileInput.files?.length) {
-      singleOutput.innerHTML = '<p class="bad">Select an image file first, then rotate the preview.</p>';
+    if (!hasSingleSourceFile()) {
+      singleOutput.innerHTML = '<p class="bad">Select or capture an image first, then rotate the preview.</p>';
       return;
     }
 
@@ -1293,8 +1367,8 @@ singleDebug.addEventListener('click', (event) => {
   }
 
   if (target.id === 'btn-apply-rescan') {
-    if (!singleFileInput.files?.length) {
-      singleOutput.innerHTML = '<p class="bad">Select an image file first, then use Apply & Rescan.</p>';
+    if (!hasSingleSourceFile()) {
+      singleOutput.innerHTML = '<p class="bad">Select or capture an image first, then use Apply & Rescan.</p>';
       return;
     }
     singleForm.requestSubmit();
@@ -1473,7 +1547,41 @@ themeToggle.addEventListener('click', () => {
 });
 
 singleFileInput.addEventListener('change', () => {
+  state.scanSourceFile = null;
   state.previewRotation = 0;
+  if (scannerStatus) {
+    scannerStatus.textContent = singleFileInput.files?.[0]
+      ? `Selected from gallery: ${singleFileInput.files[0].name}`
+      : 'Scanner not active.';
+  }
+});
+
+btnOpenScanner.addEventListener('click', async () => {
+  await startScanner();
+});
+
+btnCloseScanner.addEventListener('click', () => {
+  stopScanner();
+  scannerPanel.classList.add('hidden');
+  scannerStatus.textContent = state.scanSourceFile
+    ? `Captured scan ready: ${state.scanSourceFile.name}`
+    : 'Scanner closed.';
+});
+
+btnCaptureScan.addEventListener('click', async () => {
+  try {
+    await captureScannerImage();
+    stopScanner();
+    scannerPanel.classList.add('hidden');
+    singleOutput.innerHTML = `<p class="good">Captured scan ready: ${state.scanSourceFile.name}</p>`;
+    scannerStatus.textContent = `Captured scan ready: ${state.scanSourceFile.name}`;
+  } catch (error) {
+    scannerStatus.textContent = error.message || 'Capture failed.';
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  stopScanner();
 });
 
 async function init() {

@@ -72,9 +72,10 @@
           <form id="single-form" class="form">
             <label>
               Image file
-              <input type="file" name="file" class="file-input" accept="image/*" required />
+              <input type="file" name="file" class="file-input" accept="image/*" />
             </label>
             <p class="mini form-tip">On mobile, you can choose from gallery/files or take a new photo from the picker.</p>
+            <button type="button" id="btn-open-scanner" class="secondary-btn">Scan With Camera</button>
             <label>
               Total questions
               <input type="number" name="total" min="1" value="35" inputmode="numeric" />
@@ -85,6 +86,16 @@
             </label>
             <button type="submit">Scan Single</button>
           </form>
+          <section id="scanner-panel" class="scanner-panel hidden" aria-live="polite">
+            <h3>Camera Scanner</h3>
+            <video id="scanner-video" class="scanner-video" playsinline autoplay muted></video>
+            <canvas id="scanner-canvas" class="hidden"></canvas>
+            <div class="scanner-actions">
+              <button type="button" id="btn-capture-scan" class="secondary-btn">Capture Scan</button>
+              <button type="button" id="btn-close-scanner" class="secondary-btn">Close Scanner</button>
+            </div>
+            <p id="scanner-status" class="mini">Scanner not active.</p>
+          </section>
           <div id="single-output" class="output"></div>
           <div id="single-debug" class="debug-panel"></div>
         </article>
