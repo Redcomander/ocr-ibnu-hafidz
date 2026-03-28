@@ -320,6 +320,26 @@ button:hover {
   background: var(--control-bg);
 }
 
+.preview-frame {
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--control-bg);
+  border: 1px solid var(--line);
+}
+
+.preview-image {
+  max-width: 100%;
+  transform: rotate(var(--preview-rotation, 0deg));
+  transform-origin: center;
+}
+
+.preview-frame.is-quarter-turn .preview-image {
+  max-width: min(100%, 78vh);
+}
+
 .drag-stage {
   position: relative;
   border: 1px solid var(--line);
@@ -468,6 +488,54 @@ button:hover {
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+}
+
+.mobile-adjust-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.adjust-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.adjust-block-switch,
+.adjust-mode-row,
+.adjust-step-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.block-selector-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.block-chip {
+  white-space: nowrap;
+}
+
+.adjust-btn.is-active {
+  background: var(--accent);
+  color: var(--page);
+  border-color: transparent;
+}
+
+.adjust-pad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .secondary-btn {
@@ -621,6 +689,25 @@ button:hover {
   .rotation-pill {
     grid-column: 1 / -1;
     justify-content: center;
+  }
+
+  .adjust-header,
+  .adjust-block-switch,
+  .adjust-mode-row,
+  .adjust-step-row,
+  .adjust-pad {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .adjust-header .rotation-pill {
+    grid-column: 1 / -1;
+  }
+
+  .block-selector-strip {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    overflow: visible;
   }
 
   .preset-bar,

@@ -13,7 +13,8 @@ const state = {
   currentResult: null,
   corrections: {},
   overlayMode: 'overlay',
-  scanRotation: 0,
+  previewRotation: 0,
+  nudgeStep: 'fine',
 };
 
 const dragState = {
@@ -204,6 +205,29 @@ function normalizeRotation(rotation) {
   return ((parsed % 360) + 360) % 360;
 }
 
+function getAppliedRotation(result) {
+  return normalizeRotation(result?.rotation ?? 0);
+}
+
+function getPreviewRotation(result) {
+  return normalizeRotation(state.previewRotation ?? getAppliedRotation(result));
+}
+
+function renderPreviewImage(src, alt, rotation) {
+  const normalizedRotation = normalizeRotation(rotation);
+  const quarterTurn = normalizedRotation % 180 !== 0;
+  const classes = ['preview-frame'];
+  if (quarterTurn) {
+    classes.push('is-quarter-turn');
+  }
+
+  return `
+    <div class="${classes.join(' ')}" style="--preview-rotation: ${normalizedRotation}deg;">
+      <img class="debug-image preview-image" src="${src}" alt="${alt}" />
+    </div>
+  `;
+}
+
 function computeScore(parsedAnswers, answerKey) {
   if (!answerKey) {
     return null;
@@ -253,7 +277,8 @@ function getEffectiveResult(result) {
     ...result,
     parsedAnswers: sortedParsed,
     score: computeScore(sortedParsed, result.answerKey),
-    rotation: normalizeRotation(result.rotation ?? state.scanRotation),
+    rotation: getAppliedRotation(result),
+    previewRotation: getPreviewRotation(result),
   };
 }
 
@@ -276,7 +301,8 @@ function renderSingle(result) {
     }
     <p class="mini"><strong>Detected Answers:</strong> ${answers || 'none'}</p>
     <p class="mini"><strong>Missing:</strong> ${(effective.missing || []).join(', ') || 'none'}</p>
-    <p class="mini"><strong>Rotation:</strong> ${effective.rotation}&deg;</p>
+    <p class="mini"><strong>Applied Rotation:</strong> ${effective.rotation}&deg;</p>
+    <p class="mini"><strong>Preview Rotation:</strong> ${effective.previewRotation}&deg;</p>
     <p class="mini"><strong>Manual Corrections:</strong> ${correctionCount}</p>
   `;
 }
@@ -379,6 +405,16 @@ function renderDragEditor(result) {
   const resizeHandleRadius = compactViewport ? 9 : 7;
   const splitHandleRadius = compactViewport ? 9 : 7;
   const rowHandleRadius = compactViewport ? 8 : 6;
+  const currentPreviewRotation = getPreviewRotation(result);
+  const selectedMode = dragState.selectedMode || 'move';
+  const selectedBlock = clamp(dragState.selectedBlockIndex ?? 0, 0, Math.max(0, (state.calibration?.blocks?.length || 1) - 1));
+  const nudgeStepValue = state.nudgeStep === 'coarse' ? 10 : 3;
+  const blockSelectorButtons = (state.calibration?.blocks || [])
+    .map((block, index) => {
+      const isActive = index === selectedBlock ? 'is-active' : '';
+      return `<button type="button" class="secondary-btn adjust-btn block-chip ${isActive}" data-adjust-action="select-block" data-block-index="${index}">B${index + 1} (${block.startQ}-${block.startQ + block.count - 1})</button>`;
+    })
+    .join('');
 
   const blocks = (state.calibration?.blocks || []).map((block, index) => {
     const x = block.x * width;
@@ -441,13 +477,49 @@ function renderDragEditor(result) {
   return `
     <section class="debug-card">
       <h3>Drag-and-Drop Calibration</h3>
-      <p class="mini">Drag rectangle: move block. Corner handle: resize. Vertical handle: split question/options. Horizontal handles: top and bottom row guides. Use arrow keys to nudge selected target, Shift for bigger step, Alt to temporarily disable snap.</p>
+      <p class="mini">Drag rectangle: move block. Corner handle: resize. Vertical handle: split question/options. Horizontal handles: top and bottom row guides. On mobile, use the control pad below for more precise adjustment.</p>
       <div class="drag-actions">
         <div class="rotate-actions">
           <button type="button" id="btn-rotate-left" class="secondary-btn">Rotate -90&deg;</button>
           <button type="button" id="btn-rotate-reset" class="secondary-btn">Reset Rotation</button>
           <button type="button" id="btn-rotate-right" class="secondary-btn">Rotate +90&deg;</button>
-          <span class="rotation-pill">Current: ${normalizeRotation(result.rotation ?? state.scanRotation)}&deg;</span>
+          <span class="rotation-pill">Preview: ${currentPreviewRotation}&deg; | Applied: ${getAppliedRotation(result)}&deg;</span>
+        </div>
+        <div class="mobile-adjust-panel">
+          <div class="adjust-header">
+            <span class="rotation-pill">Block ${selectedBlock + 1} | Step ${nudgeStepValue}px</span>
+            <div class="adjust-block-switch">
+              <button type="button" class="secondary-btn adjust-btn" data-adjust-action="prev-block">Prev Block</button>
+              <button type="button" class="secondary-btn adjust-btn" data-adjust-action="next-block">Next Block</button>
+            </div>
+          </div>
+          <div class="block-selector-strip">
+            ${blockSelectorButtons}
+          </div>
+          <div class="adjust-step-row">
+            <button type="button" class="secondary-btn adjust-btn ${state.nudgeStep === 'fine' ? 'is-active' : ''}" data-adjust-action="set-step" data-step="fine">Fine</button>
+            <button type="button" class="secondary-btn adjust-btn ${state.nudgeStep === 'coarse' ? 'is-active' : ''}" data-adjust-action="set-step" data-step="coarse">Coarse</button>
+          </div>
+          <div class="adjust-mode-row">
+            ${[
+              ['move', 'Move'],
+              ['resize', 'Resize'],
+              ['split', 'Split'],
+              ['rowTop', 'Row Top'],
+              ['rowBottom', 'Row Bottom'],
+            ]
+              .map(
+                ([mode, label]) =>
+                  `<button type="button" class="secondary-btn adjust-btn ${selectedMode === mode ? 'is-active' : ''}" data-adjust-action="set-mode" data-mode="${mode}">${label}</button>`
+              )
+              .join('')}
+          </div>
+          <div class="adjust-pad">
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="nudge" data-dx="0" data-dy="-1">Up</button>
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="nudge" data-dx="-1" data-dy="0">Left</button>
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="nudge" data-dx="1" data-dy="0">Right</button>
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="nudge" data-dx="0" data-dy="1">Down</button>
+          </div>
         </div>
         <button type="button" id="btn-apply-rescan" class="secondary-btn">Apply &amp; Rescan</button>
       </div>
@@ -467,6 +539,7 @@ function renderDiagnostics(result) {
   }
 
   const effective = getEffectiveResult(result);
+  const previewRotation = getPreviewRotation(result);
   const rows = (result.diagnostics || [])
     .map((row) => {
       const expected = result.answerKey?.[String(row.qn)] || '-';
@@ -503,16 +576,16 @@ function renderDiagnostics(result) {
     ${renderDragEditor(result)}
     <section class="debug-card">
       <h3>Active Overlay</h3>
-      <img class="debug-image" src="${overlaySource(result.debug)}" alt="OCR overlay preview" />
+      ${renderPreviewImage(overlaySource(result.debug), 'OCR overlay preview', previewRotation)}
     </section>
     <div class="debug-grid">
       <section class="debug-card">
         <h3>Gray Preview</h3>
-        <img class="debug-image" src="${result.debug.grayImage}" alt="Gray preview" />
+        ${renderPreviewImage(result.debug.grayImage, 'Gray preview', previewRotation)}
       </section>
       <section class="debug-card">
         <h3>Processed Threshold Preview</h3>
-        <img class="debug-image" src="${result.debug.processedImage}" alt="Processed preview" />
+        ${renderPreviewImage(result.debug.processedImage, 'Processed preview', previewRotation)}
       </section>
     </div>
     <section class="debug-card">
@@ -835,33 +908,26 @@ function stopDrag() {
   renderCalibrationForm();
 }
 
-function nudgeSelectedTarget(event) {
+function applySelectedTargetNudge(dx, dy, options = {}) {
   if (!state.currentResult || !state.calibration) {
-    return;
-  }
-
-  const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
-  if (!arrowKeys.includes(event.key)) {
-    return;
+    return false;
   }
 
   const stageInfo = getStageAndSource();
   if (!stageInfo) {
-    return;
+    return false;
   }
 
   const { stage, sourceWidth, sourceHeight } = stageInfo;
   const blockIndex = clamp(dragState.selectedBlockIndex ?? 0, 0, state.calibration.blocks.length - 1);
   const mode = dragState.selectedMode || 'move';
-  const step = event.shiftKey ? 6 : 2;
-  const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
-  const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
   const original = getBlockPxFromCalibration(blockIndex, sourceWidth, sourceHeight);
   const blockPx = { ...original };
+  const syntheticEvent = options.disableSnap ? { altKey: true } : null;
 
   if (mode === 'move') {
-    blockPx.x = maybeSnap(clamp(blockPx.x + dx, 0, sourceWidth - blockPx.w), event);
-    blockPx.y = maybeSnap(clamp(blockPx.y + dy, 0, sourceHeight - blockPx.h), event);
+    blockPx.x = maybeSnap(clamp(blockPx.x + dx, 0, sourceWidth - blockPx.w), syntheticEvent);
+    blockPx.y = maybeSnap(clamp(blockPx.y + dy, 0, sourceHeight - blockPx.h), syntheticEvent);
     const splitRatio = (original.splitX - original.x) / Math.max(1, original.w);
     const topRatio = (original.rowTopY - original.y) / Math.max(1, original.h);
     const bottomRatio = (original.rowBottomY - original.y) / Math.max(1, original.h);
@@ -869,14 +935,14 @@ function nudgeSelectedTarget(event) {
     blockPx.rowTopY = blockPx.y + blockPx.h * topRatio;
     blockPx.rowBottomY = blockPx.y + blockPx.h * bottomRatio;
   } else if (mode === 'resize') {
-    blockPx.w = maybeSnap(clamp(blockPx.w + dx, 24, sourceWidth - blockPx.x), event);
-    blockPx.h = maybeSnap(clamp(blockPx.h + dy, 24, sourceHeight - blockPx.y), event);
+    blockPx.w = maybeSnap(clamp(blockPx.w + dx, 24, sourceWidth - blockPx.x), syntheticEvent);
+    blockPx.h = maybeSnap(clamp(blockPx.h + dy, 24, sourceHeight - blockPx.y), syntheticEvent);
   } else if (mode === 'split') {
-    blockPx.splitX = maybeSnap(clamp(blockPx.splitX + dx, blockPx.x + blockPx.w * 0.03, blockPx.x + blockPx.w * 0.45), event);
+    blockPx.splitX = maybeSnap(clamp(blockPx.splitX + dx, blockPx.x + blockPx.w * 0.03, blockPx.x + blockPx.w * 0.45), syntheticEvent);
   } else if (mode === 'rowTop') {
-    blockPx.rowTopY = maybeSnap(clamp(blockPx.rowTopY + dy, blockPx.y, blockPx.rowBottomY - blockPx.h * 0.05), event);
+    blockPx.rowTopY = maybeSnap(clamp(blockPx.rowTopY + dy, blockPx.y, blockPx.rowBottomY - blockPx.h * 0.05), syntheticEvent);
   } else if (mode === 'rowBottom') {
-    blockPx.rowBottomY = maybeSnap(clamp(blockPx.rowBottomY + dy, blockPx.rowTopY + blockPx.h * 0.05, blockPx.y + blockPx.h), event);
+    blockPx.rowBottomY = maybeSnap(clamp(blockPx.rowBottomY + dy, blockPx.rowTopY + blockPx.h * 0.05, blockPx.y + blockPx.h), syntheticEvent);
   }
 
   syncBlockVisual(stage, blockIndex, blockPx);
@@ -884,7 +950,20 @@ function nudgeSelectedTarget(event) {
   dragState.sourceHeight = sourceHeight;
   applyDraggedBlock(blockIndex, blockPx);
   renderCalibrationForm();
-  event.preventDefault();
+  return true;
+}
+
+function nudgeSelectedTarget(event) {
+  const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+  if (!arrowKeys.includes(event.key)) {
+    return;
+  }
+  const step = event.shiftKey ? 6 : 2;
+  const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+  const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+  if (applySelectedTargetNudge(dx, dy, { disableSnap: event.altKey })) {
+    event.preventDefault();
+  }
 }
 
 function updatePresetSelect() {
@@ -971,7 +1050,7 @@ function buildSingleScanFormData() {
   return compressImageFile(sourceFile).then((optimizedFile) => {
     const formData = new FormData(singleForm);
     formData.set('file', optimizedFile, optimizedFile.name);
-    formData.set('rotation', String(normalizeRotation(state.scanRotation)));
+    formData.set('rotation', String(getPreviewRotation(state.currentResult)));
     formData.append('calibration', JSON.stringify(state.calibration));
     return formData;
   });
@@ -988,7 +1067,7 @@ singleForm.addEventListener('submit', async (event) => {
     const formData = await buildSingleScanFormData();
     singleOutput.innerHTML = '<p>Uploading optimized image...</p>';
     const result = await postForm('/api/scan', formData);
-    state.scanRotation = normalizeRotation(result.rotation ?? state.scanRotation);
+    state.previewRotation = getAppliedRotation(result);
     state.currentResult = result;
     singleOutput.innerHTML = renderSingle(result);
     singleDebug.innerHTML = renderDiagnostics(result);
@@ -1086,19 +1165,65 @@ singleDebug.addEventListener('click', (event) => {
 
   if (target.id === 'btn-rotate-left' || target.id === 'btn-rotate-right' || target.id === 'btn-rotate-reset') {
     if (!singleFileInput.files?.length) {
-      singleOutput.innerHTML = '<p class="bad">Select an image file first, then rotate and rescan.</p>';
+      singleOutput.innerHTML = '<p class="bad">Select an image file first, then rotate the preview.</p>';
       return;
     }
 
     if (target.id === 'btn-rotate-left') {
-      state.scanRotation = normalizeRotation(state.scanRotation - 90);
+      state.previewRotation = normalizeRotation(getPreviewRotation(state.currentResult) - 90);
     } else if (target.id === 'btn-rotate-right') {
-      state.scanRotation = normalizeRotation(state.scanRotation + 90);
+      state.previewRotation = normalizeRotation(getPreviewRotation(state.currentResult) + 90);
     } else {
-      state.scanRotation = 0;
+      state.previewRotation = getAppliedRotation(state.currentResult);
     }
 
-    singleForm.requestSubmit();
+    if (state.currentResult) {
+      singleOutput.innerHTML = renderSingle(state.currentResult);
+      singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+    }
+    return;
+  }
+
+  if (target.dataset.adjustAction === 'set-mode') {
+    setSelectedTarget(dragState.selectedBlockIndex ?? 0, target.dataset.mode || 'move');
+    if (state.currentResult) {
+      singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+    }
+    return;
+  }
+
+  if (target.dataset.adjustAction === 'set-step') {
+    state.nudgeStep = target.dataset.step === 'coarse' ? 'coarse' : 'fine';
+    if (state.currentResult) {
+      singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+    }
+    return;
+  }
+
+  if (target.dataset.adjustAction === 'select-block') {
+    const blockIndex = clamp(Number(target.dataset.blockIndex || 0), 0, state.calibration.blocks.length - 1);
+    setSelectedTarget(blockIndex, dragState.selectedMode || 'move');
+    if (state.currentResult) {
+      singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+    }
+    return;
+  }
+
+  if (target.dataset.adjustAction === 'prev-block' || target.dataset.adjustAction === 'next-block') {
+    const delta = target.dataset.adjustAction === 'prev-block' ? -1 : 1;
+    const nextIndex = clamp((dragState.selectedBlockIndex ?? 0) + delta, 0, state.calibration.blocks.length - 1);
+    setSelectedTarget(nextIndex, dragState.selectedMode || 'move');
+    if (state.currentResult) {
+      singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+    }
+    return;
+  }
+
+  if (target.dataset.adjustAction === 'nudge') {
+    const step = state.nudgeStep === 'coarse' ? 10 : 3;
+    const dx = Number(target.dataset.dx || 0) * step;
+    const dy = Number(target.dataset.dy || 0) * step;
+    applySelectedTargetNudge(dx, dy, { disableSnap: true });
     return;
   }
 
@@ -1283,7 +1408,7 @@ themeToggle.addEventListener('click', () => {
 });
 
 singleFileInput.addEventListener('change', () => {
-  state.scanRotation = 0;
+  state.previewRotation = 0;
 });
 
 async function init() {
