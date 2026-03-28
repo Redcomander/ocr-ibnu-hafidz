@@ -69,10 +69,20 @@ async function acquireFromWindowsScanner() {
 
   try {
     await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
-      timeout: 180000,
-      windowsHide: true,
+      timeout: 120000,
+      windowsHide: false,
     });
+
+    if (!fs.existsSync(tempFile)) {
+      throw new Error('Scanner did not return an image file.');
+    }
+
     return fs.readFileSync(tempFile);
+  } catch (error) {
+    if (error && (error.killed || error.signal === 'SIGTERM')) {
+      throw new Error('Scanner dialog timeout. Make sure the dialog is visible and complete scan within 2 minutes.');
+    }
+    throw error;
   } finally {
     if (fs.existsSync(tempFile)) {
       fs.unlinkSync(tempFile);
