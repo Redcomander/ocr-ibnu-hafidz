@@ -18,6 +18,8 @@ const state = {
   scanSourceFile: null,
   capabilities: null,
   hardwareScannerBaseUrl: null,
+  scannerDevices: [],
+  selectedScannerDeviceId: '',
 };
 
 const dragState = {
@@ -1158,6 +1160,61 @@ async function loadCapabilities() {
       btnHardwareScan.textContent = 'Scan From Hardware Scanner (Desktop)';
     }
   }
+
+  if (btnRefreshHardwareScanners) {
+    btnRefreshHardwareScanners.disabled = !supported;
+  }
+
+  if (supported) {
+    await loadHardwareScannerDevices();
+  } else {
+    state.scannerDevices = [];
+    renderHardwareScannerOptions();
+  }
+}
+
+function renderHardwareScannerOptions() {
+  if (!hardwareScannerSelect) {
+    return;
+  }
+
+  const baseOption = '<option value="">Select scanner automatically</option>';
+  const items = state.scannerDevices
+    .map((device) => {
+      const deviceId = String(device.deviceId || '');
+      const selected = deviceId === state.selectedScannerDeviceId ? 'selected' : '';
+      const label = [device.name || 'Unknown scanner', device.manufacturer || ''].filter(Boolean).join(' - ');
+      return `<option value="${deviceId}" ${selected}>${label}</option>`;
+    })
+    .join('');
+
+  hardwareScannerSelect.innerHTML = baseOption + items;
+}
+
+async function loadHardwareScannerDevices() {
+  try {
+    const res = await fetch(buildHardwareScannerApiUrl('/api/scanner/devices'));
+    const data = await res.json();
+    state.scannerDevices = Array.isArray(data.devices) ? data.devices : [];
+    if (state.selectedScannerDeviceId) {
+      const hasSelected = state.scannerDevices.some((device) => String(device.deviceId) === state.selectedScannerDeviceId);
+      if (!hasSelected) {
+        state.selectedScannerDeviceId = '';
+      }
+    }
+    renderHardwareScannerOptions();
+    if (scannerStatus) {
+      scannerStatus.textContent = state.scannerDevices.length
+        ? `Detected ${state.scannerDevices.length} scanner device(s).`
+        : 'No WIA scanner detected. Install Epson WIA driver and click Refresh Scanner List.';
+    }
+  } catch (error) {
+    state.scannerDevices = [];
+    renderHardwareScannerOptions();
+    if (scannerStatus) {
+      scannerStatus.textContent = `Unable to load scanner list: ${error.message || 'request failed'}`;
+    }
+  }
 }
 
 const singleForm = document.getElementById('single-form');
@@ -1177,6 +1234,8 @@ const themeToggle = document.getElementById('theme-toggle');
 const singleFileInput = singleForm.querySelector('input[name="file"]');
 const bulkFileInput = bulkForm.querySelector('input[name="files"]');
 const btnOpenScanner = document.getElementById('btn-open-scanner');
+const hardwareScannerSelect = document.getElementById('hardware-scanner-select');
+const btnRefreshHardwareScanners = document.getElementById('btn-refresh-hardware-scanners');
 const btnHardwareScan = document.getElementById('btn-hardware-scan');
 const scannerPanel = document.getElementById('scanner-panel');
 const scannerVideo = document.getElementById('scanner-video');
@@ -1681,6 +1740,9 @@ btnHardwareScan.addEventListener('click', async () => {
     const formData = new FormData(singleForm);
     formData.set('rotation', String(getPreviewRotation(state.currentResult)));
     formData.append('calibration', JSON.stringify(state.calibration));
+    if (state.selectedScannerDeviceId) {
+      formData.set('scannerDeviceId', state.selectedScannerDeviceId);
+    }
     const result = await postForm(buildHardwareScannerApiUrl('/api/scan-hardware'), formData);
     state.previewRotation = getAppliedRotation(result);
     state.currentResult = result;
@@ -1691,6 +1753,18 @@ btnHardwareScan.addEventListener('click', async () => {
     singleOutput.innerHTML = `<p class="bad">Hardware scan failed: ${error.message}</p>`;
   }
 });
+
+if (hardwareScannerSelect) {
+  hardwareScannerSelect.addEventListener('change', () => {
+    state.selectedScannerDeviceId = hardwareScannerSelect.value || '';
+  });
+}
+
+if (btnRefreshHardwareScanners) {
+  btnRefreshHardwareScanners.addEventListener('click', async () => {
+    await loadHardwareScannerDevices();
+  });
+}
 
 window.addEventListener('beforeunload', () => {
   stopScanner();
