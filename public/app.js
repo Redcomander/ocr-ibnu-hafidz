@@ -1672,8 +1672,7 @@ btnHardwareScan.addEventListener('click', async () => {
     return;
   }
 
-  const scannerHost = getHardwareScannerApiBase() || 'current API host';
-  singleOutput.innerHTML = `<p>Waiting for hardware scanner from ${scannerHost}... follow the scanner dialog.</p>`;
+  singleOutput.innerHTML = '<p>Waiting for scanner dialog...</p>';
   singleDebug.innerHTML = '';
   state.corrections = {};
   state.overlayMode = 'overlay';
