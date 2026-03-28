@@ -1093,6 +1093,7 @@ const themeToggle = document.getElementById('theme-toggle');
 const singleFileInput = singleForm.querySelector('input[name="file"]');
 const bulkFileInput = bulkForm.querySelector('input[name="files"]');
 const btnOpenScanner = document.getElementById('btn-open-scanner');
+const btnHardwareScan = document.getElementById('btn-hardware-scan');
 const scannerPanel = document.getElementById('scanner-panel');
 const scannerVideo = document.getElementById('scanner-video');
 const scannerCanvas = document.getElementById('scanner-canvas');
@@ -1577,6 +1578,27 @@ btnCaptureScan.addEventListener('click', async () => {
     scannerStatus.textContent = `Captured scan ready: ${state.scanSourceFile.name}`;
   } catch (error) {
     scannerStatus.textContent = error.message || 'Capture failed.';
+  }
+});
+
+btnHardwareScan.addEventListener('click', async () => {
+  singleOutput.innerHTML = '<p>Waiting for hardware scanner... follow the scanner dialog.</p>';
+  singleDebug.innerHTML = '';
+  state.corrections = {};
+  state.overlayMode = 'overlay';
+
+  try {
+    const formData = new FormData(singleForm);
+    formData.set('rotation', String(getPreviewRotation(state.currentResult)));
+    formData.append('calibration', JSON.stringify(state.calibration));
+    const result = await postForm('/api/scan-hardware', formData);
+    state.previewRotation = getAppliedRotation(result);
+    state.currentResult = result;
+    state.scanSourceFile = null;
+    singleOutput.innerHTML = renderSingle(result);
+    singleDebug.innerHTML = renderDiagnostics(result);
+  } catch (error) {
+    singleOutput.innerHTML = `<p class="bad">Hardware scan failed: ${error.message}</p>`;
   }
 });
 

@@ -1,8 +1,11 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const {
   DEFAULT_CALIBRATION,
   loadAnswerKey,
@@ -13,6 +16,8 @@ const {
   parseAnswerKeyFromText,
   validateAnswerKey,
 } = require('./lib/ocr-core');
+
+const execFileAsync = promisify(execFile);
 
 const app = express();
 const upload = multer({
@@ -31,6 +36,38 @@ function getKeyMap() {
     return null;
   }
   return loadAnswerKey(defaultKeyPath);
+}
+
+async function acquireFromWindowsScanner() {
+  if (process.platform !== 'win32') {
+    throw new Error('Hardware scanner endpoint currently supports Windows only.');
+  }
+
+  const tempFile = path.join(os.tmpdir(), `ocr_scanner_${Date.now()}.jpg`);
+  const escapedPath = tempFile.replace(/'/g, "''");
+  const jpegFormatGuid = '{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}';
+
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `$outputPath = '${escapedPath}'`,
+    '$dialog = New-Object -ComObject WIA.CommonDialog',
+    `$image = $dialog.ShowAcquireImage(1,0,0,'${jpegFormatGuid}',$false,$true,$false)`,
+    'if ($null -eq $image) { throw "Scanner capture was cancelled." }',
+    '$image.SaveFile($outputPath)',
+    'Write-Output $outputPath',
+  ].join('; ');
+
+  try {
+    await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      timeout: 180000,
+      windowsHide: true,
+    });
+    return fs.readFileSync(tempFile);
+  } finally {
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+  }
 }
 
 app.use(express.json());
@@ -73,6 +110,34 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Scan failed' });
+  }
+});
+
+app.post('/api/scan-hardware', async (req, res) => {
+  try {
+    const total = Number(req.body.total || 35);
+    const lang = String(req.body.lang || 'eng');
+    const rotation = sanitizeRotation(req.body.rotation || 0);
+    const keyMap = getKeyMap();
+    const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
+    const scannedBuffer = await acquireFromWindowsScanner();
+
+    const result = await scanBuffer({
+      fileBuffer: scannedBuffer,
+      keyMap,
+      total,
+      lang,
+      rotation,
+      includeDebug: String(req.body.debug || 'true') !== 'false',
+      calibration,
+    });
+
+    return res.json({
+      fileName: `hardware_scan_${Date.now()}.jpg`,
+      ...result,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Hardware scan failed' });
   }
 });
 
