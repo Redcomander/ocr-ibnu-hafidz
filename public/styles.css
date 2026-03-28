@@ -397,6 +397,10 @@ button:hover {
   cursor: nwse-resize;
 }
 
+.drag-resize-handle {
+  stroke-width: 2.6;
+}
+
 .drag-split {
   stroke: rgba(251, 146, 60, 0.95);
   stroke-width: 2;
@@ -536,6 +540,12 @@ button:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.adjust-step-row .adjust-btn,
+.adjust-pad .adjust-btn,
+.adjust-mode-row .adjust-btn {
+  min-height: 48px;
 }
 
 .secondary-btn {

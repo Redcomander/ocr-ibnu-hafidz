@@ -4,8 +4,7 @@ const THEME_STORAGE_KEY = 'ocr-answer-reader-theme';
 const APP_CONFIG = window.OCR_APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
 const IMAGE_COMPRESSION_MAX_DIMENSION = 1800;
-const IMAGE_COMPRESSION_QUALITY = 0.82;
-const IMAGE_COMPRESSION_MIN_BYTES = 900 * 1024;
+const IMAGE_COMPRESSION_QUALITY = 0.84;
 
 const state = {
   calibration: null,
@@ -133,12 +132,28 @@ function canvasToBlob(canvas, mimeType, quality) {
   });
 }
 
-async function compressImageFile(file) {
-  if (!(file instanceof File) || !file.type.startsWith('image/')) {
-    return file;
+function applyBwEnhancement(context, width, height) {
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const contrast = (luminance - 128) * 1.35 + 128;
+    const boosted = Math.max(0, Math.min(255, contrast));
+    const bw = boosted > 162 ? 255 : 0;
+    data[index] = bw;
+    data[index + 1] = bw;
+    data[index + 2] = bw;
   }
 
-  if (file.size < IMAGE_COMPRESSION_MIN_BYTES) {
+  context.putImageData(imageData, 0, 0);
+}
+
+async function optimizeImageForScan(file) {
+  if (!(file instanceof File) || !file.type.startsWith('image/')) {
     return file;
   }
 
@@ -162,15 +177,16 @@ async function compressImageFile(file) {
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, targetWidth, targetHeight);
     context.drawImage(image, 0, 0, targetWidth, targetHeight);
+    applyBwEnhancement(context, targetWidth, targetHeight);
 
-    const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const mimeType = 'image/jpeg';
     const blob = await canvasToBlob(canvas, mimeType, IMAGE_COMPRESSION_QUALITY);
 
-    if (blob.size >= file.size) {
+    if (blob.size === 0) {
       return file;
     }
 
-    const extension = mimeType === 'image/png' ? '.png' : '.jpg';
+    const extension = '.jpg';
     const safeName = file.name.replace(/\.[^.]+$/, '') || 'upload';
     return new File([blob], `${safeName}${extension}`, {
       type: mimeType,
@@ -186,7 +202,7 @@ async function compressSelectedFiles(files, onProgress) {
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
     onProgress?.(index, files.length, file);
-    items.push(await compressImageFile(file));
+    items.push(await optimizeImageForScan(file));
   }
   return items;
 }
@@ -402,9 +418,9 @@ function renderDragEditor(result) {
   const width = Number(debug.width || 1);
   const height = Number(debug.height || 1);
   const compactViewport = window.matchMedia('(max-width: 900px)').matches;
-  const resizeHandleRadius = compactViewport ? 9 : 7;
-  const splitHandleRadius = compactViewport ? 9 : 7;
-  const rowHandleRadius = compactViewport ? 8 : 6;
+  const resizeHandleRadius = compactViewport ? 14 : 7;
+  const splitHandleRadius = compactViewport ? 12 : 7;
+  const rowHandleRadius = compactViewport ? 11 : 6;
   const currentPreviewRotation = getPreviewRotation(result);
   const selectedMode = dragState.selectedMode || 'move';
   const selectedBlock = clamp(dragState.selectedBlockIndex ?? 0, 0, Math.max(0, (state.calibration?.blocks?.length || 1) - 1));
@@ -513,6 +529,12 @@ function renderDragEditor(result) {
                   `<button type="button" class="secondary-btn adjust-btn ${selectedMode === mode ? 'is-active' : ''}" data-adjust-action="set-mode" data-mode="${mode}">${label}</button>`
               )
               .join('')}
+          </div>
+          <div class="adjust-step-row">
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="resize-quick" data-resize-dx="-1" data-resize-dy="0">Width -</button>
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="resize-quick" data-resize-dx="1" data-resize-dy="0">Width +</button>
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="resize-quick" data-resize-dx="0" data-resize-dy="-1">Height -</button>
+            <button type="button" class="secondary-btn adjust-btn" data-adjust-action="resize-quick" data-resize-dx="0" data-resize-dy="1">Height +</button>
           </div>
           <div class="adjust-pad">
             <button type="button" class="secondary-btn adjust-btn" data-adjust-action="nudge" data-dx="0" data-dy="-1">Up</button>
@@ -1047,7 +1069,7 @@ function buildSingleScanFormData() {
     throw new Error('Please select an image file first.');
   }
 
-  return compressImageFile(sourceFile).then((optimizedFile) => {
+  return optimizeImageForScan(sourceFile).then((optimizedFile) => {
     const formData = new FormData(singleForm);
     formData.set('file', optimizedFile, optimizedFile.name);
     formData.set('rotation', String(getPreviewRotation(state.currentResult)));
@@ -1058,14 +1080,14 @@ function buildSingleScanFormData() {
 
 singleForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  singleOutput.innerHTML = '<p>Compressing image...</p>';
+  singleOutput.innerHTML = '<p>Enhancing image (B&amp;W) and optimizing...</p>';
   singleDebug.innerHTML = '';
   state.corrections = {};
   state.overlayMode = 'overlay';
 
   try {
     const formData = await buildSingleScanFormData();
-    singleOutput.innerHTML = '<p>Uploading optimized image...</p>';
+    singleOutput.innerHTML = '<p>Uploading enhanced image...</p>';
     const result = await postForm('/api/scan', formData);
     state.previewRotation = getAppliedRotation(result);
     state.currentResult = result;
@@ -1079,7 +1101,7 @@ singleForm.addEventListener('submit', async (event) => {
 
 bulkForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  bulkSummary.innerHTML = '<p>Compressing images...</p>';
+  bulkSummary.innerHTML = '<p>Enhancing images (B&amp;W) and optimizing...</p>';
   bulkOutput.innerHTML = '';
 
   try {
@@ -1089,7 +1111,7 @@ bulkForm.addEventListener('submit', async (event) => {
     }
 
     const optimizedFiles = await compressSelectedFiles(selectedFiles, (index, total) => {
-      bulkSummary.innerHTML = `<p>Compressing image ${index + 1} of ${total}...</p>`;
+      bulkSummary.innerHTML = `<p>Enhancing image ${index + 1} of ${total}...</p>`;
     });
 
     const formData = new FormData(bulkForm);
@@ -1099,7 +1121,7 @@ bulkForm.addEventListener('submit', async (event) => {
     });
     formData.set('rotation', '0');
     formData.append('calibration', JSON.stringify(state.calibration));
-    bulkSummary.innerHTML = '<p>Uploading optimized images...</p>';
+    bulkSummary.innerHTML = '<p>Uploading enhanced images...</p>';
     const result = await postForm('/api/scan-bulk', formData);
 
     bulkSummary.innerHTML = `
@@ -1224,6 +1246,20 @@ singleDebug.addEventListener('click', (event) => {
     const dx = Number(target.dataset.dx || 0) * step;
     const dy = Number(target.dataset.dy || 0) * step;
     applySelectedTargetNudge(dx, dy, { disableSnap: true });
+    return;
+  }
+
+  if (target.dataset.adjustAction === 'resize-quick') {
+    const step = state.nudgeStep === 'coarse' ? 10 : 3;
+    const dx = Number(target.dataset.resizeDx || 0) * step;
+    const dy = Number(target.dataset.resizeDy || 0) * step;
+    const originalMode = dragState.selectedMode || 'move';
+    setSelectedTarget(dragState.selectedBlockIndex ?? 0, 'resize');
+    applySelectedTargetNudge(dx, dy, { disableSnap: true });
+    setSelectedTarget(dragState.selectedBlockIndex ?? 0, originalMode);
+    if (state.currentResult) {
+      singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+    }
     return;
   }
 
