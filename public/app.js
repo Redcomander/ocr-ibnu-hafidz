@@ -3,6 +3,9 @@ const DEFAULT_PRESET_NAME = '__default__';
 const THEME_STORAGE_KEY = 'ocr-answer-reader-theme';
 const APP_CONFIG = window.OCR_APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
+const IMAGE_COMPRESSION_MAX_DIMENSION = 1800;
+const IMAGE_COMPRESSION_QUALITY = 0.82;
+const IMAGE_COMPRESSION_MIN_BYTES = 900 * 1024;
 
 const state = {
   calibration: null,
@@ -98,6 +101,92 @@ function buildApiUrl(path) {
     return path;
   }
   return `${API_BASE_URL}${path}`;
+}
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(`Failed to read image: ${file.name}`));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(canvas, mimeType, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Image compression failed'));
+        return;
+      }
+      resolve(blob);
+    }, mimeType, quality);
+  });
+}
+
+async function compressImageFile(file) {
+  if (!(file instanceof File) || !file.type.startsWith('image/')) {
+    return file;
+  }
+
+  if (file.size < IMAGE_COMPRESSION_MIN_BYTES) {
+    return file;
+  }
+
+  try {
+    const image = await readImageFile(file);
+    const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+    const scale = longestSide > IMAGE_COMPRESSION_MAX_DIMENSION ? IMAGE_COMPRESSION_MAX_DIMENSION / longestSide : 1;
+    const targetWidth = Math.max(1, Math.round(image.naturalWidth * scale));
+    const targetHeight = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d', { alpha: false });
+
+    if (!context) {
+      return file;
+    }
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, targetWidth, targetHeight);
+    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const blob = await canvasToBlob(canvas, mimeType, IMAGE_COMPRESSION_QUALITY);
+
+    if (blob.size >= file.size) {
+      return file;
+    }
+
+    const extension = mimeType === 'image/png' ? '.png' : '.jpg';
+    const safeName = file.name.replace(/\.[^.]+$/, '') || 'upload';
+    return new File([blob], `${safeName}${extension}`, {
+      type: mimeType,
+      lastModified: Date.now(),
+    });
+  } catch {
+    return file;
+  }
+}
+
+async function compressSelectedFiles(files, onProgress) {
+  const items = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    onProgress?.(index, files.length, file);
+    items.push(await compressImageFile(file));
+  }
+  return items;
 }
 
 function buildAnswerString(parsedAnswers) {
@@ -275,6 +364,10 @@ function renderDragEditor(result) {
   const debug = result.debug;
   const width = Number(debug.width || 1);
   const height = Number(debug.height || 1);
+  const compactViewport = window.matchMedia('(max-width: 900px)').matches;
+  const resizeHandleRadius = compactViewport ? 9 : 7;
+  const splitHandleRadius = compactViewport ? 9 : 7;
+  const rowHandleRadius = compactViewport ? 8 : 6;
 
   const blocks = (state.calibration?.blocks || []).map((block, index) => {
     const x = block.x * width;
@@ -326,10 +419,10 @@ function renderDragEditor(result) {
         <line class="drag-row-guide" data-guide="top" data-block-index="${index}" x1="${x}" y1="${rowTopY}" x2="${x + w}" y2="${rowTopY}" />
         <line class="drag-row-guide" data-guide="bottom" data-block-index="${index}" x1="${x}" y1="${rowBottomY}" x2="${x + w}" y2="${rowBottomY}" />
         <text class="drag-label" data-block-index="${index}" x="${x + 6}" y="${y + 16}">Block ${index + 1} (${block.startQ}-${endQ})</text>
-        <circle class="drag-handle drag-resize-handle" data-block-index="${index}" cx="${x + w}" cy="${y + h}" r="7" />
-        <circle class="drag-handle drag-split-handle" data-role="split" data-block-index="${index}" cx="${splitX}" cy="${y + h * 0.5}" r="7" />
-        <circle class="drag-handle drag-row-handle" data-role="rowTop" data-block-index="${index}" cx="${x + w - 10}" cy="${rowTopY}" r="6" />
-        <circle class="drag-handle drag-row-handle" data-role="rowBottom" data-block-index="${index}" cx="${x + w - 10}" cy="${rowBottomY}" r="6" />
+        <circle class="drag-handle drag-resize-handle" data-block-index="${index}" cx="${x + w}" cy="${y + h}" r="${resizeHandleRadius}" />
+        <circle class="drag-handle drag-split-handle" data-role="split" data-block-index="${index}" cx="${splitX}" cy="${y + h * 0.5}" r="${splitHandleRadius}" />
+        <circle class="drag-handle drag-row-handle" data-role="rowTop" data-block-index="${index}" cx="${x + w - 10}" cy="${rowTopY}" r="${rowHandleRadius}" />
+        <circle class="drag-handle drag-row-handle" data-role="rowBottom" data-block-index="${index}" cx="${x + w - 10}" cy="${rowBottomY}" r="${rowHandleRadius}" />
       </g>
     `;
   });
@@ -852,13 +945,22 @@ const themeToggle = document.getElementById('theme-toggle');
 
 singleForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  singleOutput.innerHTML = '<p>Processing image...</p>';
+  singleOutput.innerHTML = '<p>Compressing image...</p>';
   singleDebug.innerHTML = '';
   state.corrections = {};
   state.overlayMode = 'overlay';
 
   try {
+    const sourceFile = singleForm.querySelector('input[name="file"]').files?.[0];
+    if (!sourceFile) {
+      throw new Error('Please select an image file first.');
+    }
+
+    const optimizedFile = await compressImageFile(sourceFile);
+    singleOutput.innerHTML = '<p>Uploading optimized image...</p>';
+
     const formData = new FormData(singleForm);
+    formData.set('file', optimizedFile, optimizedFile.name);
     formData.append('calibration', JSON.stringify(state.calibration));
     const result = await postForm('/api/scan', formData);
     state.currentResult = result;
@@ -872,12 +974,26 @@ singleForm.addEventListener('submit', async (event) => {
 
 bulkForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  bulkSummary.innerHTML = '<p>Processing files, please wait...</p>';
+  bulkSummary.innerHTML = '<p>Compressing images...</p>';
   bulkOutput.innerHTML = '';
 
   try {
+    const selectedFiles = Array.from(bulkForm.querySelector('input[name="files"]').files || []);
+    if (!selectedFiles.length) {
+      throw new Error('Please select one or more image files first.');
+    }
+
+    const optimizedFiles = await compressSelectedFiles(selectedFiles, (index, total) => {
+      bulkSummary.innerHTML = `<p>Compressing image ${index + 1} of ${total}...</p>`;
+    });
+
     const formData = new FormData(bulkForm);
+    formData.delete('files');
+    optimizedFiles.forEach((file) => {
+      formData.append('files', file, file.name);
+    });
     formData.append('calibration', JSON.stringify(state.calibration));
+    bulkSummary.innerHTML = '<p>Uploading optimized images...</p>';
     const result = await postForm('/api/scan-bulk', formData);
 
     bulkSummary.innerHTML = `
@@ -1030,6 +1146,12 @@ singleDebug.addEventListener('pointerdown', (event) => {
 window.addEventListener('pointermove', onDragMove);
 window.addEventListener('pointerup', stopDrag);
 window.addEventListener('keydown', nudgeSelectedTarget);
+window.addEventListener('resize', () => {
+  if (!state.currentResult) {
+    return;
+  }
+  singleDebug.innerHTML = renderDiagnostics(state.currentResult);
+});
 
 presetSelect.addEventListener('change', () => {
   applyPreset(presetSelect.value);

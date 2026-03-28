@@ -72,11 +72,12 @@
           <form id="single-form" class="form">
             <label>
               Image file
-              <input type="file" name="file" class="file-input" accept="image/*" required />
+              <input type="file" name="file" class="file-input" accept="image/*" capture="environment" required />
             </label>
+            <p class="mini form-tip">On mobile, you can use the rear camera or choose an image from your gallery.</p>
             <label>
               Total questions
-              <input type="number" name="total" min="1" value="35" />
+              <input type="number" name="total" min="1" value="35" inputmode="numeric" />
             </label>
             <label class="checkbox-row">
               <input type="checkbox" name="debug" value="true" checked />
@@ -95,9 +96,10 @@
               Multiple images
               <input type="file" name="files" class="file-input" accept="image/*" multiple required />
             </label>
+            <p class="mini form-tip">Bulk upload works best from gallery/files. Camera capture is used for the single-scan flow.</p>
             <label>
               Total questions
-              <input type="number" name="total" min="1" value="35" />
+              <input type="number" name="total" min="1" value="35" inputmode="numeric" />
             </label>
             <button type="submit">Scan Bulk</button>
           </form>

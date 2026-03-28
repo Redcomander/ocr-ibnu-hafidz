@@ -39,6 +39,7 @@ body {
   overflow-x: hidden;
   background: var(--page);
   font-family: "Plus Jakarta Sans", sans-serif;
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .bg-orb {
@@ -59,8 +60,8 @@ body {
 }
 
 .container {
-  width: min(1120px, 92vw);
-  margin: 30px auto 50px;
+  width: min(1120px, calc(100vw - 24px));
+  margin: 20px auto 40px;
 }
 
 .hero {
@@ -206,6 +207,7 @@ button {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
+  min-height: 46px;
   padding: 10px 12px;
   font-size: 15px;
   background: var(--control-bg);
@@ -223,6 +225,10 @@ button:focus {
   padding: 8px;
   border-style: dashed;
   background: var(--surface-soft);
+}
+
+.form-tip {
+  margin: -2px 0 2px;
 }
 
 .file-input::file-selector-button {
@@ -320,6 +326,8 @@ button:hover {
   border-radius: 12px;
   overflow: hidden;
   background: var(--control-bg);
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 
 .drag-stage .debug-image {
@@ -563,9 +571,24 @@ button:hover {
 }
 
 @media (max-width: 900px) {
+  .container {
+    width: min(100%, calc(100vw - 16px));
+    margin: 12px auto 28px;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
   .hero-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .theme-toggle,
+  .secondary-btn {
+    width: 100%;
   }
 
   .preset-bar,
@@ -579,6 +602,72 @@ button:hover {
 
   .debug-grid {
     grid-template-columns: 1fr;
+  }
+
+  .output,
+  .summary {
+    max-height: none;
+  }
+
+  .overlay-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .overlay-toggle button {
+    width: 100%;
+  }
+
+  .drag-label,
+  .drag-col-label,
+  .drag-row-number {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 15px;
+  }
+
+  h1 {
+    font-size: clamp(24px, 9vw, 34px);
+  }
+
+  .badge {
+    width: 100%;
+    text-align: center;
+  }
+
+  .checkbox-row {
+    align-items: flex-start;
+  }
+
+  .checkbox-row input {
+    margin-top: 4px;
+  }
+
+  .file-input::file-selector-button {
+    display: block;
+    width: 100%;
+    margin: 0 0 8px;
+  }
+
+  .kpi {
+    gap: 10px;
+  }
+
+  .table,
+  .diagnostics-table {
+    font-size: 12px;
+  }
+
+  .drag-actions {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-bottom: 8px;
+    background: var(--surface-soft);
   }
 }
 
