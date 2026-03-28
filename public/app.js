@@ -15,6 +15,7 @@ const state = {
   previewRotation: 0,
   nudgeStep: 'fine',
   scanSourceFile: null,
+  capabilities: null,
 };
 
 const dragState = {
@@ -1076,6 +1077,29 @@ async function loadKeyStatus() {
   }
 }
 
+async function loadCapabilities() {
+  try {
+    const res = await fetch(buildApiUrl('/api/capabilities'));
+    const data = await res.json();
+    state.capabilities = data;
+  } catch {
+    state.capabilities = null;
+  }
+
+  const supported = Boolean(state.capabilities?.hardwareScanner?.supported);
+  if (btnHardwareScan) {
+    btnHardwareScan.disabled = !supported;
+    if (!supported) {
+      const reason = state.capabilities?.hardwareScanner?.reason || 'Hardware scanner is unavailable on this server.';
+      btnHardwareScan.title = reason;
+      btnHardwareScan.textContent = 'Hardware Scanner Unavailable On This Server';
+    } else {
+      btnHardwareScan.title = '';
+      btnHardwareScan.textContent = 'Scan From Hardware Scanner (Desktop)';
+    }
+  }
+}
+
 const singleForm = document.getElementById('single-form');
 const bulkForm = document.getElementById('bulk-form');
 const singleOutput = document.getElementById('single-output');
@@ -1582,6 +1606,12 @@ btnCaptureScan.addEventListener('click', async () => {
 });
 
 btnHardwareScan.addEventListener('click', async () => {
+  if (!state.capabilities?.hardwareScanner?.supported) {
+    const reason = state.capabilities?.hardwareScanner?.reason || 'Hardware scanner is unavailable on this server.';
+    singleOutput.innerHTML = `<p class="bad">${reason}</p>`;
+    return;
+  }
+
   singleOutput.innerHTML = '<p>Waiting for hardware scanner... follow the scanner dialog.</p>';
   singleDebug.innerHTML = '';
   state.corrections = {};
@@ -1610,7 +1640,7 @@ async function init() {
   applyTheme(getPreferredTheme());
   state.presets = getStoredPresets();
   updatePresetSelect();
-  await Promise.all([loadDefaultCalibration(true), loadKeyStatus()]);
+  await Promise.all([loadDefaultCalibration(true), loadKeyStatus(), loadCapabilities()]);
   presetSelect.value = DEFAULT_PRESET_NAME;
   setInterval(loadKeyStatus, 5000);
 }

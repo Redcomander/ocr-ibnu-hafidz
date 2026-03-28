@@ -38,6 +38,16 @@ function getKeyMap() {
   return loadAnswerKey(defaultKeyPath);
 }
 
+function getCapabilities() {
+  const hardwareScannerSupported = process.platform === 'win32';
+  return {
+    hardwareScanner: {
+      supported: hardwareScannerSupported,
+      reason: hardwareScannerSupported ? null : 'Hardware scanner endpoint is available only on Windows host with WIA scanner support.',
+    },
+  };
+}
+
 async function acquireFromWindowsScanner() {
   if (process.platform !== 'win32') {
     throw new Error('Hardware scanner endpoint currently supports Windows only.');
@@ -78,6 +88,10 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/capabilities', (_req, res) => {
+  res.json(getCapabilities());
+});
+
 app.get('/api/calibration/default', (_req, res) => {
   res.json({ calibration: DEFAULT_CALIBRATION });
 });
@@ -115,6 +129,11 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
 
 app.post('/api/scan-hardware', async (req, res) => {
   try {
+    const capabilities = getCapabilities();
+    if (!capabilities.hardwareScanner.supported) {
+      return res.status(501).json({ error: capabilities.hardwareScanner.reason });
+    }
+
     const total = Number(req.body.total || 35);
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
@@ -137,7 +156,10 @@ app.post('/api/scan-hardware', async (req, res) => {
       ...result,
     });
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Hardware scan failed' });
+    const message = error.message || 'Hardware scan failed';
+    const lowered = message.toLowerCase();
+    const status = lowered.includes('cancel') ? 400 : 500;
+    return res.status(status).json({ error: message });
   }
 });
 
