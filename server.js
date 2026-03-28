@@ -7,6 +7,7 @@ const {
   DEFAULT_CALIBRATION,
   loadAnswerKey,
   sanitizeCalibration,
+  sanitizeRotation,
   scanBuffer,
   generateAnswerKeyTemplate,
   parseAnswerKeyFromText,
@@ -52,6 +53,7 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
 
     const total = Number(req.body.total || 35);
     const lang = String(req.body.lang || 'eng');
+    const rotation = sanitizeRotation(req.body.rotation || 0);
     const keyMap = getKeyMap();
     const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
 
@@ -60,6 +62,7 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
       keyMap,
       total,
       lang,
+      rotation,
       includeDebug: String(req.body.debug || 'true') !== 'false',
       calibration,
     });
@@ -81,6 +84,7 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
 
     const total = Number(req.body.total || 35);
     const lang = String(req.body.lang || 'eng');
+    const rotation = sanitizeRotation(req.body.rotation || 0);
     const keyMap = getKeyMap();
     const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
 
@@ -92,6 +96,7 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
         keyMap,
         total,
         lang,
+        rotation,
         includeDebug: false,
         calibration,
       });

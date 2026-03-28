@@ -445,7 +445,29 @@ button:hover {
 }
 
 .drag-actions {
+  display: grid;
+  gap: 8px;
   margin-bottom: 8px;
+}
+
+.rotate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rotation-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--control-bg);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .secondary-btn {
@@ -589,6 +611,16 @@ button:hover {
   .theme-toggle,
   .secondary-btn {
     width: 100%;
+  }
+
+  .rotate-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rotation-pill {
+    grid-column: 1 / -1;
+    justify-content: center;
   }
 
   .preset-bar,

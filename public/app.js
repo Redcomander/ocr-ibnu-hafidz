@@ -13,6 +13,7 @@ const state = {
   currentResult: null,
   corrections: {},
   overlayMode: 'overlay',
+  scanRotation: 0,
 };
 
 const dragState = {
@@ -195,6 +196,14 @@ function buildAnswerString(parsedAnswers) {
     .join(' | ');
 }
 
+function normalizeRotation(rotation) {
+  const parsed = Number(rotation);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return ((parsed % 360) + 360) % 360;
+}
+
 function computeScore(parsedAnswers, answerKey) {
   if (!answerKey) {
     return null;
@@ -244,6 +253,7 @@ function getEffectiveResult(result) {
     ...result,
     parsedAnswers: sortedParsed,
     score: computeScore(sortedParsed, result.answerKey),
+    rotation: normalizeRotation(result.rotation ?? state.scanRotation),
   };
 }
 
@@ -266,6 +276,7 @@ function renderSingle(result) {
     }
     <p class="mini"><strong>Detected Answers:</strong> ${answers || 'none'}</p>
     <p class="mini"><strong>Missing:</strong> ${(effective.missing || []).join(', ') || 'none'}</p>
+    <p class="mini"><strong>Rotation:</strong> ${effective.rotation}&deg;</p>
     <p class="mini"><strong>Manual Corrections:</strong> ${correctionCount}</p>
   `;
 }
@@ -432,6 +443,12 @@ function renderDragEditor(result) {
       <h3>Drag-and-Drop Calibration</h3>
       <p class="mini">Drag rectangle: move block. Corner handle: resize. Vertical handle: split question/options. Horizontal handles: top and bottom row guides. Use arrow keys to nudge selected target, Shift for bigger step, Alt to temporarily disable snap.</p>
       <div class="drag-actions">
+        <div class="rotate-actions">
+          <button type="button" id="btn-rotate-left" class="secondary-btn">Rotate -90&deg;</button>
+          <button type="button" id="btn-rotate-reset" class="secondary-btn">Reset Rotation</button>
+          <button type="button" id="btn-rotate-right" class="secondary-btn">Rotate +90&deg;</button>
+          <span class="rotation-pill">Current: ${normalizeRotation(result.rotation ?? state.scanRotation)}&deg;</span>
+        </div>
         <button type="button" id="btn-apply-rescan" class="secondary-btn">Apply &amp; Rescan</button>
       </div>
       <div class="drag-stage" id="drag-stage" tabindex="0" data-source-width="${width}" data-source-height="${height}">
@@ -942,6 +959,23 @@ const presetSelect = document.getElementById('preset-select');
 const presetNameInput = document.getElementById('preset-name');
 const calibrationOutput = document.getElementById('calibration-output');
 const themeToggle = document.getElementById('theme-toggle');
+const singleFileInput = singleForm.querySelector('input[name="file"]');
+const bulkFileInput = bulkForm.querySelector('input[name="files"]');
+
+function buildSingleScanFormData() {
+  const sourceFile = singleFileInput.files?.[0];
+  if (!sourceFile) {
+    throw new Error('Please select an image file first.');
+  }
+
+  return compressImageFile(sourceFile).then((optimizedFile) => {
+    const formData = new FormData(singleForm);
+    formData.set('file', optimizedFile, optimizedFile.name);
+    formData.set('rotation', String(normalizeRotation(state.scanRotation)));
+    formData.append('calibration', JSON.stringify(state.calibration));
+    return formData;
+  });
+}
 
 singleForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -951,18 +985,10 @@ singleForm.addEventListener('submit', async (event) => {
   state.overlayMode = 'overlay';
 
   try {
-    const sourceFile = singleForm.querySelector('input[name="file"]').files?.[0];
-    if (!sourceFile) {
-      throw new Error('Please select an image file first.');
-    }
-
-    const optimizedFile = await compressImageFile(sourceFile);
+    const formData = await buildSingleScanFormData();
     singleOutput.innerHTML = '<p>Uploading optimized image...</p>';
-
-    const formData = new FormData(singleForm);
-    formData.set('file', optimizedFile, optimizedFile.name);
-    formData.append('calibration', JSON.stringify(state.calibration));
     const result = await postForm('/api/scan', formData);
+    state.scanRotation = normalizeRotation(result.rotation ?? state.scanRotation);
     state.currentResult = result;
     singleOutput.innerHTML = renderSingle(result);
     singleDebug.innerHTML = renderDiagnostics(result);
@@ -978,7 +1004,7 @@ bulkForm.addEventListener('submit', async (event) => {
   bulkOutput.innerHTML = '';
 
   try {
-    const selectedFiles = Array.from(bulkForm.querySelector('input[name="files"]').files || []);
+    const selectedFiles = Array.from(bulkFileInput.files || []);
     if (!selectedFiles.length) {
       throw new Error('Please select one or more image files first.');
     }
@@ -992,6 +1018,7 @@ bulkForm.addEventListener('submit', async (event) => {
     optimizedFiles.forEach((file) => {
       formData.append('files', file, file.name);
     });
+    formData.set('rotation', '0');
     formData.append('calibration', JSON.stringify(state.calibration));
     bulkSummary.innerHTML = '<p>Uploading optimized images...</p>';
     const result = await postForm('/api/scan-bulk', formData);
@@ -1057,8 +1084,26 @@ singleDebug.addEventListener('click', (event) => {
     return;
   }
 
+  if (target.id === 'btn-rotate-left' || target.id === 'btn-rotate-right' || target.id === 'btn-rotate-reset') {
+    if (!singleFileInput.files?.length) {
+      singleOutput.innerHTML = '<p class="bad">Select an image file first, then rotate and rescan.</p>';
+      return;
+    }
+
+    if (target.id === 'btn-rotate-left') {
+      state.scanRotation = normalizeRotation(state.scanRotation - 90);
+    } else if (target.id === 'btn-rotate-right') {
+      state.scanRotation = normalizeRotation(state.scanRotation + 90);
+    } else {
+      state.scanRotation = 0;
+    }
+
+    singleForm.requestSubmit();
+    return;
+  }
+
   if (target.id === 'btn-apply-rescan') {
-    if (!singleForm.querySelector('input[name="file"]').files?.length) {
+    if (!singleFileInput.files?.length) {
       singleOutput.innerHTML = '<p class="bad">Select an image file first, then use Apply & Rescan.</p>';
       return;
     }
@@ -1235,6 +1280,10 @@ btnUploadKey.addEventListener('click', async () => {
 themeToggle.addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme') || 'light';
   applyTheme(current === 'dark' ? 'light' : 'dark');
+});
+
+singleFileInput.addEventListener('change', () => {
+  state.scanRotation = 0;
 });
 
 async function init() {
