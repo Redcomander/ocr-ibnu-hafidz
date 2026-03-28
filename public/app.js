@@ -3,6 +3,7 @@ const DEFAULT_PRESET_NAME = '__default__';
 const THEME_STORAGE_KEY = 'ocr-answer-reader-theme';
 const APP_CONFIG = window.OCR_APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
+const HARDWARE_SCANNER_API_BASE_URL = String(APP_CONFIG.hardwareScannerApiBaseUrl || '').trim().replace(/\/+$/, '');
 const IMAGE_COMPRESSION_MAX_DIMENSION = 1800;
 const IMAGE_COMPRESSION_QUALITY = 0.84;
 
@@ -16,6 +17,7 @@ const state = {
   nudgeStep: 'fine',
   scanSourceFile: null,
   capabilities: null,
+  hardwareScannerBaseUrl: null,
 };
 
 const dragState = {
@@ -96,14 +98,36 @@ async function postForm(url, formData) {
   return payload;
 }
 
-function buildApiUrl(path) {
-  if (!API_BASE_URL) {
-    return path;
-  }
+function buildApiUrlFromBase(baseUrl, path) {
   if (/^https?:\/\//i.test(path)) {
     return path;
   }
-  return `${API_BASE_URL}${path}`;
+  if (!baseUrl) {
+    return path;
+  }
+  return `${baseUrl}${path}`;
+}
+
+function buildApiUrl(path) {
+  return buildApiUrlFromBase(API_BASE_URL, path);
+}
+
+function getHardwareScannerApiBase() {
+  if (state.hardwareScannerBaseUrl) {
+    return state.hardwareScannerBaseUrl;
+  }
+  if (HARDWARE_SCANNER_API_BASE_URL) {
+    return HARDWARE_SCANNER_API_BASE_URL;
+  }
+  return null;
+}
+
+function buildHardwareScannerApiUrl(path) {
+  const base = getHardwareScannerApiBase();
+  if (base) {
+    return buildApiUrlFromBase(base, path);
+  }
+  return buildApiUrl(path);
 }
 
 function readImageFile(file) {
@@ -1078,19 +1102,55 @@ async function loadKeyStatus() {
 }
 
 async function loadCapabilities() {
-  try {
-    const res = await fetch(buildApiUrl('/api/capabilities'));
-    const data = await res.json();
-    state.capabilities = data;
-  } catch {
-    state.capabilities = null;
+  const candidates = [];
+  const pushCandidate = (value) => {
+    const normalized = String(value || '').trim().replace(/\/+$/, '');
+    if (!normalized) {
+      return;
+    }
+    if (!candidates.includes(normalized)) {
+      candidates.push(normalized);
+    }
+  };
+
+  pushCandidate(HARDWARE_SCANNER_API_BASE_URL);
+  pushCandidate(API_BASE_URL);
+  pushCandidate(window.location.origin);
+  pushCandidate('http://localhost:3099');
+
+  let firstResponse = null;
+  state.hardwareScannerBaseUrl = null;
+  state.capabilities = null;
+
+  for (const baseUrl of candidates) {
+    try {
+      const res = await fetch(buildApiUrlFromBase(baseUrl, '/api/capabilities'));
+      if (!res.ok) {
+        continue;
+      }
+      const data = await res.json();
+      if (!firstResponse) {
+        firstResponse = data;
+      }
+      if (data?.hardwareScanner?.supported) {
+        state.capabilities = data;
+        state.hardwareScannerBaseUrl = baseUrl;
+        break;
+      }
+    } catch {
+      // Try next candidate base URL.
+    }
+  }
+
+  if (!state.capabilities) {
+    state.capabilities = firstResponse;
   }
 
   const supported = Boolean(state.capabilities?.hardwareScanner?.supported);
   if (btnHardwareScan) {
     btnHardwareScan.disabled = !supported;
     if (!supported) {
-      const reason = state.capabilities?.hardwareScanner?.reason || 'Hardware scanner is unavailable on this server.';
+      const reason = state.capabilities?.hardwareScanner?.reason || 'Hardware scanner is unavailable on this host. Run local API on Windows to use desktop scanner.';
       btnHardwareScan.title = reason;
       btnHardwareScan.textContent = 'Hardware Scanner Unavailable On This Server';
     } else {
@@ -1612,7 +1672,8 @@ btnHardwareScan.addEventListener('click', async () => {
     return;
   }
 
-  singleOutput.innerHTML = '<p>Waiting for hardware scanner... follow the scanner dialog.</p>';
+  const scannerHost = getHardwareScannerApiBase() || 'current API host';
+  singleOutput.innerHTML = `<p>Waiting for hardware scanner from ${scannerHost}... follow the scanner dialog.</p>`;
   singleDebug.innerHTML = '';
   state.corrections = {};
   state.overlayMode = 'overlay';
@@ -1621,7 +1682,7 @@ btnHardwareScan.addEventListener('click', async () => {
     const formData = new FormData(singleForm);
     formData.set('rotation', String(getPreviewRotation(state.currentResult)));
     formData.append('calibration', JSON.stringify(state.calibration));
-    const result = await postForm('/api/scan-hardware', formData);
+    const result = await postForm(buildHardwareScannerApiUrl('/api/scan-hardware'), formData);
     state.previewRotation = getAppliedRotation(result);
     state.currentResult = result;
     state.scanSourceFile = null;
