@@ -127,18 +127,19 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
   }
 });
 
-app.post('/api/scan-hardware', async (req, res) => {
+app.post('/api/scan-hardware', upload.none(), async (req, res) => {
   try {
     const capabilities = getCapabilities();
     if (!capabilities.hardwareScanner.supported) {
       return res.status(501).json({ error: capabilities.hardwareScanner.reason });
     }
 
-    const total = Number(req.body.total || 35);
-    const lang = String(req.body.lang || 'eng');
-    const rotation = sanitizeRotation(req.body.rotation || 0);
+    const body = req.body || {};
+    const total = Number(body.total || 35);
+    const lang = String(body.lang || 'eng');
+    const rotation = sanitizeRotation(body.rotation || 0);
     const keyMap = getKeyMap();
-    const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
+    const calibration = body.calibration ? sanitizeCalibration(JSON.parse(String(body.calibration))) : DEFAULT_CALIBRATION;
     const scannedBuffer = await acquireFromWindowsScanner();
 
     const result = await scanBuffer({
@@ -147,7 +148,7 @@ app.post('/api/scan-hardware', async (req, res) => {
       total,
       lang,
       rotation,
-      includeDebug: String(req.body.debug || 'true') !== 'false',
+      includeDebug: String(body.debug || 'true') !== 'false',
       calibration,
     });
 
