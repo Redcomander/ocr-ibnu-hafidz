@@ -135,18 +135,47 @@ function canvasToBlob(canvas, mimeType, quality) {
 function applyBwEnhancement(context, width, height) {
   const imageData = context.getImageData(0, 0, width, height);
   const data = imageData.data;
+  const histogram = new Array(256).fill(0);
+  let pixelCount = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+    const luminance = Math.max(0, Math.min(255, Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)));
+    histogram[luminance] += 1;
+    pixelCount += 1;
+  }
+
+  const percentileValue = (percentile) => {
+    const target = pixelCount * percentile;
+    let cumulative = 0;
+    for (let value = 0; value < histogram.length; value += 1) {
+      cumulative += histogram[value];
+      if (cumulative >= target) {
+        return value;
+      }
+    }
+    return 255;
+  };
+
+  const low = percentileValue(0.04);
+  const high = percentileValue(0.97);
+  const range = Math.max(28, high - low);
 
   for (let index = 0; index < data.length; index += 4) {
     const r = data[index];
     const g = data[index + 1];
     const b = data[index + 2];
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const contrast = (luminance - 128) * 1.35 + 128;
-    const boosted = Math.max(0, Math.min(255, contrast));
-    const bw = boosted > 162 ? 255 : 0;
-    data[index] = bw;
-    data[index + 1] = bw;
-    data[index + 2] = bw;
+    const stretched = ((luminance - low) * 255) / range;
+    const normalized = Math.max(0, Math.min(255, stretched));
+    const gammaBoosted = 255 * Math.pow(normalized / 255, 0.92);
+    const contrast = (gammaBoosted - 128) * 1.08 + 128;
+    const enhanced = Math.max(0, Math.min(255, contrast));
+    data[index] = enhanced;
+    data[index + 1] = enhanced;
+    data[index + 2] = enhanced;
   }
 
   context.putImageData(imageData, 0, 0);
