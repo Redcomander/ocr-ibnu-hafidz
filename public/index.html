@@ -84,6 +84,13 @@
             </label>
             <button type="button" id="btn-refresh-hardware-scanners" class="secondary-btn">Refresh Scanner List</button>
             <button type="button" id="btn-hardware-scan" class="secondary-btn">Scan From Hardware Scanner (Desktop)</button>
+            <div id="hardware-scan-indicator" class="hardware-scan-indicator hidden" aria-live="polite">
+              <div class="hardware-scan-indicator__row">
+                <span class="hardware-scan-indicator__dot"></span>
+                <strong id="hardware-scan-indicator-title">Preparing scanner...</strong>
+              </div>
+              <p id="hardware-scan-indicator-detail" class="mini">Waiting for scanner process.</p>
+            </div>
             <label>
               Total questions
               <input type="number" name="total" min="1" value="35" inputmode="numeric" />

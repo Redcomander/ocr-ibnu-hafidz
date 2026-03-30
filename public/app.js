@@ -20,6 +20,8 @@ const state = {
   hardwareScannerBaseUrl: null,
   scannerDevices: [],
   selectedScannerDeviceId: '',
+  hardwareScanInProgress: false,
+  hardwareScanIndicatorTimer: null,
 };
 
 const dragState = {
@@ -132,6 +134,82 @@ function buildHardwareScannerApiUrl(path) {
   return buildApiUrl(path);
 }
 
+function stopHardwareScanIndicatorTimer() {
+  if (state.hardwareScanIndicatorTimer) {
+    window.clearInterval(state.hardwareScanIndicatorTimer);
+    state.hardwareScanIndicatorTimer = null;
+  }
+}
+
+function setHardwareScannerControlsDisabled(disabled) {
+  state.hardwareScanInProgress = disabled;
+  if (btnHardwareScan) {
+    btnHardwareScan.disabled = disabled || !state.capabilities?.hardwareScanner?.supported;
+  }
+  if (btnRefreshHardwareScanners) {
+    btnRefreshHardwareScanners.disabled = disabled || !state.capabilities?.hardwareScanner?.supported;
+  }
+  if (hardwareScannerSelect) {
+    hardwareScannerSelect.disabled = disabled;
+  }
+}
+
+function showHardwareScanIndicator(title, detail) {
+  if (!hardwareScanIndicator || !hardwareScanIndicatorTitle || !hardwareScanIndicatorDetail) {
+    return;
+  }
+
+  hardwareScanIndicator.classList.remove('hidden');
+  hardwareScanIndicator.setAttribute('data-state', 'active');
+  hardwareScanIndicatorTitle.textContent = title;
+  hardwareScanIndicatorDetail.textContent = detail;
+}
+
+function setHardwareScanIndicatorState(stateName, title, detail) {
+  if (!hardwareScanIndicator || !hardwareScanIndicatorTitle || !hardwareScanIndicatorDetail) {
+    return;
+  }
+
+  hardwareScanIndicator.classList.remove('hidden');
+  hardwareScanIndicator.setAttribute('data-state', stateName);
+  hardwareScanIndicatorTitle.textContent = title;
+  hardwareScanIndicatorDetail.textContent = detail;
+}
+
+function hideHardwareScanIndicator() {
+  stopHardwareScanIndicatorTimer();
+  if (!hardwareScanIndicator) {
+    return;
+  }
+  hardwareScanIndicator.classList.add('hidden');
+  hardwareScanIndicator.setAttribute('data-state', 'idle');
+}
+
+function startHardwareScanIndicator() {
+  stopHardwareScanIndicatorTimer();
+
+  const startedAt = Date.now();
+  const update = () => {
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+    if (elapsedSeconds < 4) {
+      setHardwareScanIndicatorState('active', 'Preparing scanner request...', 'Contacting the local Windows scanner service.');
+      return;
+    }
+    if (elapsedSeconds < 15) {
+      setHardwareScanIndicatorState('active', 'Starting scanner...', 'If you selected a scanner device, Windows may scan directly and no dialog may appear.');
+      return;
+    }
+    if (elapsedSeconds < 45) {
+      setHardwareScanIndicatorState('active', 'Scanning page...', 'The scanner is acquiring the page and converting it for OCR.');
+      return;
+    }
+    setHardwareScanIndicatorState('active', 'Still processing scanner image...', 'The scanner is taking longer than usual. Keep the scanner dialog open until it finishes.');
+  };
+
+  update();
+  state.hardwareScanIndicatorTimer = window.setInterval(update, 1000);
+}
+
 function readImageFile(file) {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -157,6 +235,15 @@ function canvasToBlob(canvas, mimeType, quality) {
       }
       resolve(blob);
     }, mimeType, quality);
+  });
+}
+
+async function dataUrlToFile(dataUrl, fileName, mimeType = 'image/png') {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName, {
+    type: blob.type || mimeType,
+    lastModified: Date.now(),
   });
 }
 
@@ -1165,6 +1252,10 @@ async function loadCapabilities() {
     btnRefreshHardwareScanners.disabled = !supported;
   }
 
+  if (hardwareScannerSelect) {
+    hardwareScannerSelect.disabled = state.hardwareScanInProgress;
+  }
+
   if (supported) {
     await loadHardwareScannerDevices();
   } else {
@@ -1178,17 +1269,21 @@ function renderHardwareScannerOptions() {
     return;
   }
 
-  const baseOption = '<option value="">Select scanner automatically</option>';
-  const items = state.scannerDevices
-    .map((device) => {
-      const deviceId = String(device.deviceId || '');
-      const selected = deviceId === state.selectedScannerDeviceId ? 'selected' : '';
-      const label = [device.name || 'Unknown scanner', device.manufacturer || ''].filter(Boolean).join(' - ');
-      return `<option value="${deviceId}" ${selected}>${label}</option>`;
-    })
-    .join('');
+  hardwareScannerSelect.innerHTML = '';
 
-  hardwareScannerSelect.innerHTML = baseOption + items;
+  const autoOption = document.createElement('option');
+  autoOption.value = '';
+  autoOption.textContent = 'Select scanner automatically';
+  hardwareScannerSelect.appendChild(autoOption);
+
+  state.scannerDevices.forEach((device) => {
+    const option = document.createElement('option');
+    option.value = String(device.deviceId || '');
+    option.textContent = [device.name || 'Unknown scanner', device.manufacturer || ''].filter(Boolean).join(' - ');
+    hardwareScannerSelect.appendChild(option);
+  });
+
+  hardwareScannerSelect.value = state.selectedScannerDeviceId || '';
 }
 
 async function loadHardwareScannerDevices() {
@@ -1237,6 +1332,9 @@ const btnOpenScanner = document.getElementById('btn-open-scanner');
 const hardwareScannerSelect = document.getElementById('hardware-scanner-select');
 const btnRefreshHardwareScanners = document.getElementById('btn-refresh-hardware-scanners');
 const btnHardwareScan = document.getElementById('btn-hardware-scan');
+const hardwareScanIndicator = document.getElementById('hardware-scan-indicator');
+const hardwareScanIndicatorTitle = document.getElementById('hardware-scan-indicator-title');
+const hardwareScanIndicatorDetail = document.getElementById('hardware-scan-indicator-detail');
 const scannerPanel = document.getElementById('scanner-panel');
 const scannerVideo = document.getElementById('scanner-video');
 const scannerCanvas = document.getElementById('scanner-canvas');
@@ -1731,7 +1829,9 @@ btnHardwareScan.addEventListener('click', async () => {
     return;
   }
 
-  singleOutput.innerHTML = '<p>Waiting for scanner dialog...</p>';
+  setHardwareScannerControlsDisabled(true);
+  startHardwareScanIndicator();
+  singleOutput.innerHTML = '<p>Starting hardware scanner...</p>';
   singleDebug.innerHTML = '';
   state.corrections = {};
   state.overlayMode = 'overlay';
@@ -1746,11 +1846,23 @@ btnHardwareScan.addEventListener('click', async () => {
     const result = await postForm(buildHardwareScannerApiUrl('/api/scan-hardware'), formData);
     state.previewRotation = getAppliedRotation(result);
     state.currentResult = result;
-    state.scanSourceFile = null;
+    if (result.debug?.sourceImage) {
+      state.scanSourceFile = await dataUrlToFile(result.debug.sourceImage, `hardware_scan_${Date.now()}.png`);
+      if (scannerStatus) {
+        scannerStatus.textContent = `Hardware scan ready: ${state.scanSourceFile.name}`;
+      }
+    } else {
+      state.scanSourceFile = null;
+    }
+    setHardwareScanIndicatorState('success', 'Scanner capture complete', 'The scanned image was received and processed successfully.');
     singleOutput.innerHTML = renderSingle(result);
     singleDebug.innerHTML = renderDiagnostics(result);
   } catch (error) {
+    setHardwareScanIndicatorState('error', 'Hardware scan failed', error.message || 'Scanner request failed.');
     singleOutput.innerHTML = `<p class="bad">Hardware scan failed: ${error.message}</p>`;
+  } finally {
+    stopHardwareScanIndicatorTimer();
+    setHardwareScannerControlsDisabled(false);
   }
 });
 

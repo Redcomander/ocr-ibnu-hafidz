@@ -4,6 +4,7 @@ const os = require('os');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const sharp = require('sharp');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const {
@@ -49,8 +50,12 @@ function getCapabilities() {
 }
 
 async function runPowerShellScript(script, timeout = 120000) {
+  const scriptPath = path.join(os.tmpdir(), `ocr_reader_${Date.now()}_${Math.random().toString(16).slice(2)}.ps1`);
+
   try {
-    return await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    fs.writeFileSync(scriptPath, `${script}\n`, 'utf8');
+
+    return await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
       timeout,
       windowsHide: false,
     });
@@ -60,11 +65,88 @@ async function runPowerShellScript(script, timeout = 120000) {
     const base = String(error?.message || 'PowerShell execution failed').trim();
     const detail = stderr || stdout;
     throw new Error(detail ? `${base}\n${detail}` : base);
+  } finally {
+    if (fs.existsSync(scriptPath)) {
+      fs.unlinkSync(scriptPath);
+    }
   }
 }
 
 function escapePsSingleQuoted(value) {
   return String(value || '').replace(/'/g, "''");
+}
+
+function getBufferSignature(buffer, bytes = 12) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return 'empty';
+  }
+
+  return buffer.subarray(0, Math.min(bytes, buffer.length)).toString('hex');
+}
+
+async function normalizeScannedImageBuffer(inputBuffer) {
+  if (!Buffer.isBuffer(inputBuffer) || inputBuffer.length === 0) {
+    throw new Error('Scanner returned an empty image file.');
+  }
+
+  try {
+    return await sharp(inputBuffer).rotate().png().toBuffer();
+  } catch (error) {
+    const signature = getBufferSignature(inputBuffer);
+    const detail = error?.message ? ` ${error.message}` : '';
+    throw new Error(`Scanner returned an unreadable image format. Signature: ${signature}.${detail}`);
+  }
+}
+
+async function normalizeScannedImageFileOnWindows(inputPath) {
+  if (process.platform !== 'win32') {
+    throw new Error('Windows scanner file normalization is unavailable on this platform.');
+  }
+
+  const outputPath = path.join(os.tmpdir(), `ocr_scanner_normalized_${Date.now()}.png`);
+  const escapedInputPath = escapePsSingleQuoted(inputPath);
+  const escapedOutputPath = escapePsSingleQuoted(outputPath);
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    'Add-Type -AssemblyName System.Drawing',
+    `$inputPath = '${escapedInputPath}'`,
+    `$outputPath = '${escapedOutputPath}'`,
+    '$image = [System.Drawing.Image]::FromFile($inputPath)',
+    'try {',
+    '  $bitmap = New-Object System.Drawing.Bitmap $image',
+    '  try {',
+    '    $bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)',
+    '  } finally {',
+    '    $bitmap.Dispose()',
+    '  }',
+    '} finally {',
+    '  $image.Dispose()',
+    '}',
+    'Write-Output $outputPath',
+  ].join('\n');
+
+  try {
+    const { stdout } = await runPowerShellScript(script, 60000);
+    const normalizedPath = String(stdout || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .pop();
+
+    if (!normalizedPath || !fs.existsSync(normalizedPath)) {
+      throw new Error('Windows image normalization did not produce an output file.');
+    }
+
+    return {
+      buffer: fs.readFileSync(normalizedPath),
+      outputPath: normalizedPath,
+    };
+  } catch (error) {
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+    throw error;
+  }
 }
 
 async function listWindowsScanners() {
@@ -86,7 +168,7 @@ async function listWindowsScanners() {
     '  }',
     '}',
     '$devices | ConvertTo-Json -Compress -Depth 4',
-  ].join('; ');
+  ].join('\n');
 
   const { stdout } = await runPowerShellScript(script, 30000);
   const payload = String(stdout || '').trim();
@@ -109,41 +191,136 @@ async function acquireFromWindowsScanner(scannerDeviceId) {
     throw new Error('Hardware scanner endpoint currently supports Windows only.');
   }
 
-  const tempFile = path.join(os.tmpdir(), `ocr_scanner_${Date.now()}.jpg`);
-  const escapedPath = escapePsSingleQuoted(tempFile);
+  const tempDir = os.tmpdir();
+  const baseName = `ocr_scanner_${Date.now()}`;
+  const escapedTempDir = escapePsSingleQuoted(tempDir);
+  const escapedBaseName = escapePsSingleQuoted(baseName);
   const escapedDeviceId = escapePsSingleQuoted(scannerDeviceId || '');
-  const jpegFormatGuid = '{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}';
 
   const script = [
     "$ErrorActionPreference = 'Stop'",
-    `$outputPath = '${escapedPath}'`,
+    `$tempDir = '${escapedTempDir}'`,
+    `$baseName = '${escapedBaseName}'`,
     `$scannerDeviceId = '${escapedDeviceId}'`,
+    'function Test-IsBusyError([string]$message) {',
+    '  if ([string]::IsNullOrWhiteSpace($message)) { return $false }',
+    '  return $message.ToLowerInvariant().Contains("device is busy")',
+    '}',
+    'function Connect-ScannerDevice($deviceInfo) {',
+    '  $lastError = $null',
+    '  for ($attempt = 1; $attempt -le 4; $attempt++) {',
+    '    try {',
+    '      return $deviceInfo.Connect()',
+    '    } catch {',
+    '      $lastError = $_.Exception.Message',
+    '      if (-not (Test-IsBusyError $lastError) -or $attempt -eq 4) { throw }',
+    '      Start-Sleep -Milliseconds (600 * $attempt)',
+    '    }',
+    '  }',
+    '  throw $lastError',
+    '}',
+    'function Convert-ScannerImage($image, $formatGuid, $quality = $null) {',
+    '  $imageProcessor = New-Object -ComObject WIA.ImageProcess',
+    '  $convertFilter = $imageProcessor.FilterInfos | Where-Object { $_.Name -eq "Convert" } | Select-Object -First 1',
+    '  if ($null -eq $convertFilter) { throw "WIA Convert filter is not available." }',
+    '  $imageProcessor.Filters.Add($convertFilter.FilterID)',
+    '  $imageProcessor.Filters.Item(1).Properties.Item("FormatID").Value = $formatGuid',
+    '  if ($null -ne $quality) {',
+    '    try { $imageProcessor.Filters.Item(1).Properties.Item("Quality").Value = $quality } catch {}',
+    '  }',
+    '  return $imageProcessor.Apply($image)',
+    '}',
     '$dialog = New-Object -ComObject WIA.CommonDialog',
+    '$deviceManager = New-Object -ComObject WIA.DeviceManager',
     '$device = $null',
     'if ([string]::IsNullOrWhiteSpace($scannerDeviceId)) {',
     '  $device = $dialog.ShowSelectDevice(1, $true, $false)',
     '} else {',
-    '  $dm = New-Object -ComObject WIA.DeviceManager',
-    '  $deviceInfo = $dm.DeviceInfos | Where-Object { $_.DeviceID -eq $scannerDeviceId } | Select-Object -First 1',
-    '  if ($null -eq $deviceInfo) { throw "Selected scanner was not found." }',
-    '  $device = $deviceInfo.Connect()',
+    '  $deviceInfo = $deviceManager.DeviceInfos | Where-Object { $_.DeviceID -eq $scannerDeviceId } | Select-Object -First 1',
+    '  if ($null -eq $deviceInfo) {',
+    '    $device = $dialog.ShowSelectDevice(1, $true, $false)',
+    '  } else {',
+    '    $device = Connect-ScannerDevice $deviceInfo',
+    '  }',
     '}',
     'if ($null -eq $device) { throw "Scanner device selection was cancelled." }',
     '$item = $device.Items.Item(1)',
-    `$image = $item.Transfer('${jpegFormatGuid}')`,
+    '$image = $item.Transfer()',
     'if ($null -eq $image) { throw "Scanner capture was cancelled." }',
-    '$image.SaveFile($outputPath)',
-    'Write-Output $outputPath',
-  ].join('; ');
+    '$formats = @(',
+    "  @{ name = 'bmp'; extension = 'bmp'; guid = '{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}' },",
+    "  @{ name = 'png'; extension = 'png'; guid = '{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}' },",
+    "  @{ name = 'jpeg'; extension = 'jpg'; guid = '{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}' }",
+    ')',
+    '$lastFormatError = $null',
+    'foreach ($format in $formats) {',
+    '  try {',
+    '    $quality = $null',
+    '    if ($format.name -eq "jpeg") { $quality = 85 }',
+    '    $converted = Convert-ScannerImage $image $format.guid $quality',
+    '    if ($null -eq $converted) { continue }',
+    '    $outputPath = Join-Path $tempDir ($baseName + "." + $format.extension)',
+    '    if (Test-Path $outputPath) { Remove-Item $outputPath -Force -ErrorAction SilentlyContinue }',
+    '    $converted.SaveFile($outputPath)',
+    '    if (Test-Path $outputPath) {',
+    '      [PSCustomObject]@{ path = $outputPath; format = $format.name } | ConvertTo-Json -Compress',
+    '      exit 0',
+    '    }',
+    '  } catch {',
+    '    $lastFormatError = $_.Exception.Message',
+    '  }',
+    '}',
+    'try {',
+    '  $converted = Convert-ScannerImage $image "{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}" $null',
+    '  if ($null -eq $converted) { throw "Scanner conversion failed." }',
+    '  $outputPath = Join-Path $tempDir ($baseName + ".bmp")',
+    '  if (Test-Path $outputPath) { Remove-Item $outputPath -Force -ErrorAction SilentlyContinue }',
+    '  $converted.SaveFile($outputPath)',
+    '  [PSCustomObject]@{ path = $outputPath; format = "native" } | ConvertTo-Json -Compress',
+    '} catch {',
+    '  if ($lastFormatError) {',
+    '    throw ("Scanner transfer failed. Preferred formats could not be captured. Last format error: " + $lastFormatError + ". Native fallback error: " + $_.Exception.Message)',
+    '  }',
+    '  throw',
+    '}',
+  ].join('\n');
+
+  let tempFile = null;
+  let normalizedTempFile = null;
 
   try {
-    await runPowerShellScript(script, 120000);
+    const { stdout } = await runPowerShellScript(script, 120000);
+    const payload = String(stdout || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .pop();
+
+    if (!payload) {
+      throw new Error('Scanner did not return a file path.');
+    }
+
+    const parsed = JSON.parse(payload);
+    tempFile = typeof parsed?.path === 'string' ? parsed.path : null;
 
     if (!fs.existsSync(tempFile)) {
       throw new Error('Scanner did not return an image file.');
     }
 
-    return fs.readFileSync(tempFile);
+    const scannedBuffer = fs.readFileSync(tempFile);
+
+    try {
+      return await normalizeScannedImageBuffer(scannedBuffer);
+    } catch (error) {
+      const signature = getBufferSignature(scannedBuffer);
+      if (!signature.startsWith('424d')) {
+        throw error;
+      }
+
+      const normalized = await normalizeScannedImageFileOnWindows(tempFile);
+      normalizedTempFile = normalized.outputPath;
+      return normalized.buffer;
+    }
   } catch (error) {
     if (error && (error.killed || error.signal === 'SIGTERM')) {
       throw new Error('Scanner dialog timeout. Make sure the dialog is visible and complete scan within 2 minutes.');
@@ -152,13 +329,16 @@ async function acquireFromWindowsScanner(scannerDeviceId) {
     if (detail.includes('wia') && detail.includes('class not registered')) {
       throw new Error('WIA is not available on this machine. Install scanner drivers with WIA support.');
     }
-    if (detail.includes('selected scanner was not found')) {
-      throw new Error('Selected scanner was not found. Refresh scanner list and try again.');
+    if (detail.includes('device is busy')) {
+      throw new Error('Scanner is busy. Close Epson Scan or other scanner apps, wait a few seconds, then try again.');
     }
     throw error;
   } finally {
-    if (fs.existsSync(tempFile)) {
+    if (tempFile && fs.existsSync(tempFile)) {
       fs.unlinkSync(tempFile);
+    }
+    if (normalizedTempFile && fs.existsSync(normalizedTempFile)) {
+      fs.unlinkSync(normalizedTempFile);
     }
   }
 }

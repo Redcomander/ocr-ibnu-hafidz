@@ -245,6 +245,53 @@ button:focus {
   gap: 10px;
 }
 
+.hardware-scan-indicator {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.hardware-scan-indicator__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hardware-scan-indicator__dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.hardware-scan-indicator[data-state="active"] .hardware-scan-indicator__dot {
+  animation: hardwarePulse 1.2s ease-out infinite;
+}
+
+.hardware-scan-indicator[data-state="success"] {
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--good) 10%, var(--surface-soft));
+}
+
+.hardware-scan-indicator[data-state="success"] .hardware-scan-indicator__dot {
+  background: var(--good);
+  box-shadow: none;
+}
+
+.hardware-scan-indicator[data-state="error"] {
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--bad) 10%, var(--surface-soft));
+}
+
+.hardware-scan-indicator[data-state="error"] .hardware-scan-indicator__dot {
+  background: var(--bad);
+  box-shadow: none;
+}
+
 .scanner-panel h3 {
   margin: 0;
   font-size: 14px;
@@ -264,6 +311,21 @@ button:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+@keyframes hardwarePulse {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
 }
 
 .file-input::file-selector-button {
