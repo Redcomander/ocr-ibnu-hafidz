@@ -1243,7 +1243,26 @@ async function loadAuthStatus() {
 
   try {
     const res = await authorizedFetch(buildApiUrl('/api/auth/status'));
-    const data = await res.json();
+    const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+    const rawBody = await res.text();
+
+    let data = null;
+    if (rawBody && contentType.includes('application/json')) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        data = null;
+      }
+    }
+
+    if (!data) {
+      throw new Error('Auth endpoint returned non-JSON response. Check OCR API base URL/proxy.');
+    }
+
+    if (!res.ok) {
+      throw new Error(data.error || data.message || `Auth request failed (${res.status})`);
+    }
+
     state.authEnabled = Boolean(data.enabled);
     state.authUser = data.user || null;
 
