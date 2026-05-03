@@ -1223,14 +1223,14 @@ async function loadKeyStatus() {
         <strong>✓ Answer Key Loaded</strong><br>
         <small>Questions: ${data.count} | Preview: ${Object.values(data.preview).join(', ')}</small>
       `;
-      statusEl.className = 'key-status status-good';
+      statusEl.className = 'key-badge status-good';
     } else {
       statusEl.innerHTML = '<strong>No Answer Key</strong><br><small>Upload one or download template to get started</small>';
-      statusEl.className = 'key-status status-warn';
+      statusEl.className = 'key-badge status-warn';
     }
   } catch {
     const statusEl = document.getElementById('key-status');
-    statusEl.className = 'key-status status-bad';
+    statusEl.className = 'key-badge status-bad';
     statusEl.innerHTML = '<p class="bad">Error loading key status</p>';
   }
 }
@@ -1248,22 +1248,22 @@ async function loadAuthStatus() {
     state.authUser = data.user || null;
 
     if (!state.authEnabled) {
-      authStatusEl.className = 'key-status status-warn';
+      authStatusEl.className = 'auth-pill auth-checking';
       authStatusEl.innerHTML = '<strong>Auth disabled</strong><br><small>OCR service is running without token validation.</small>';
       return;
     }
 
     if (data.authenticated) {
       const displayName = data.user?.name || data.user?.email || data.user?.username || 'Authenticated user';
-      authStatusEl.className = 'key-status status-good';
+      authStatusEl.className = 'auth-pill auth-ok';
       authStatusEl.innerHTML = `<strong>Logged in</strong><br><small>${displayName}</small>`;
       return;
     }
 
-    authStatusEl.className = 'key-status status-bad';
+    authStatusEl.className = 'auth-pill auth-fail';
     authStatusEl.innerHTML = '<strong>Login required</strong><br><small>Open OCR from Ibnu Hafidz Web after login, or provide token in URL/local storage.</small>';
   } catch (error) {
-    authStatusEl.className = 'key-status status-bad';
+    authStatusEl.className = 'auth-pill auth-fail';
     authStatusEl.innerHTML = `<strong>Auth check failed</strong><br><small>${error.message || 'Unable to verify token'}</small>`;
   }
 }

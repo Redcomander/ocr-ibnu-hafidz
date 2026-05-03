@@ -1,142 +1,300 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OCR Answer Reader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Scanner Lembar Jawab — Ibnu Hafidz</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;600&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="bg-orb orb-a"></div>
-    <div class="bg-orb orb-b"></div>
 
-    <main class="container">
-      <header class="hero">
-        <div class="hero-row">
-          <p class="badge">OCR + Scoring</p>
-          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">Dark Mode</button>
+    <div class="app-shell">
+
+      <!-- Top Bar -->
+      <header class="topbar">
+        <div class="topbar-inner">
+          <div class="topbar-brand">
+            <div class="brand-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                <rect x="3" y="3" width="18" height="18" rx="3"/>
+                <path d="M9 9h1M14 9h1M9 15h6"/>
+              </svg>
+            </div>
+            <div>
+              <div class="brand-title">Scanner Lembar Jawab</div>
+              <div class="brand-sub">Ibnu Hafidz · OCR Service</div>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div id="auth-status" class="auth-pill auth-checking">Checking...</div>
+            <button type="button" id="theme-toggle" class="icon-btn" aria-label="Toggle dark mode" title="Toggle dark mode">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <h1>Answer Reader 1-35</h1>
-        <p>
-          Upload one image or many images. The app extracts answers and counts right vs wrong using your key.
-        </p>
-        <div id="auth-status" class="key-status status-warn">Checking login token...</div>
       </header>
 
-      <section class="key-section">
-        <article class="card">
-          <h2>Answer Key Management</h2>
-          <div class="key-status" id="key-status">Loading...</div>
-          <div class="form">
-            <button type="button" id="btn-download-template">Download Template</button>
-            <label>
-              Or Upload Custom Key
-              <input type="file" id="key-file-input" class="file-input" accept=".json,.csv,.txt" />
-            </label>
-            <button type="button" id="btn-upload-key">Upload Key</button>
-          </div>
-          <div id="key-output" class="output"></div>
-        </article>
-      </section>
+      <!-- Tab Nav -->
+      <nav class="tab-nav">
+        <button class="tab-btn tab-active" data-tab="tab-scan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Scan
+        </button>
+        <button class="tab-btn" data-tab="tab-key">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          Kunci
+        </button>
+        <button class="tab-btn" data-tab="tab-calibration">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+          Kalibrasi
+        </button>
+      </nav>
 
-      <section class="key-section">
-        <article class="card">
-          <h2>Calibration Workbench</h2>
-          <p class="mini">Tune block positions, row spacing, and scoring thresholds live. These settings apply to the next scan.</p>
-          <div class="preset-bar">
-            <label>
-              Preset
-              <select id="preset-select" class="select-input"></select>
-            </label>
-            <label>
-              New preset name
-              <input type="text" id="preset-name" placeholder="example: camera-1" />
-            </label>
-            <button type="button" id="btn-save-preset">Save Preset</button>
-            <button type="button" id="btn-delete-preset">Delete Preset</button>
-            <button type="button" id="btn-reset-calibration">Reset Default</button>
-          </div>
-          <div id="calibration-form" class="calibration-form"></div>
-          <div id="calibration-output" class="output"></div>
-        </article>
-      </section>
+      <!-- Main Content -->
+      <main class="main-content">
 
-      <section class="grid">
-        <article class="card">
-          <h2>Single Upload</h2>
-          <form id="single-form" class="form">
-            <label>
-              Image file
-              <input type="file" name="file" class="file-input" accept="image/*" />
-            </label>
-            <p class="mini form-tip">On mobile, you can choose from gallery/files or take a new photo from the picker.</p>
-            <button type="button" id="btn-open-scanner" class="secondary-btn">Scan With Camera</button>
-            <label>
-              Desktop scanner device
-              <select id="hardware-scanner-select" class="select-input">
-                <option value="">Select scanner automatically</option>
-              </select>
-            </label>
-            <button type="button" id="btn-refresh-hardware-scanners" class="secondary-btn">Refresh Scanner List</button>
-            <button type="button" id="btn-hardware-scan" class="secondary-btn">Scan From Hardware Scanner (Desktop)</button>
-            <div id="hardware-scan-indicator" class="hardware-scan-indicator hidden" aria-live="polite">
-              <div class="hardware-scan-indicator__row">
-                <span class="hardware-scan-indicator__dot"></span>
-                <strong id="hardware-scan-indicator-title">Preparing scanner...</strong>
+        <!-- TAB: SCAN -->
+        <div id="tab-scan" class="tab-panel tab-panel-active">
+
+          <div class="mode-pills">
+            <button class="mode-pill mode-active" data-mode="single">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              Satu Gambar
+            </button>
+            <button class="mode-pill" data-mode="bulk">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              Banyak Gambar
+            </button>
+            <button class="mode-pill" data-mode="hardware">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Scanner
+            </button>
+          </div>
+
+          <!-- Single Scan -->
+          <div id="mode-single" class="mode-panel">
+            <div class="card">
+              <form id="single-form" class="scan-form">
+                <div class="dropzone" id="single-dropzone">
+                  <div class="dropzone-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="40" height="40"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  </div>
+                  <div class="dropzone-text">
+                    <strong>Ambil Foto / Pilih Gambar</strong>
+                    <span>Tap untuk kamera · drag &amp; drop · atau pilih file</span>
+                  </div>
+                  <input type="file" name="file" class="file-input dropzone-input" accept="image/*" id="single-file-input" />
+                </div>
+                <div class="preview-wrap hidden" id="single-preview-wrap">
+                  <img id="single-preview-img" class="preview-img" src="" alt="Preview" />
+                  <button type="button" class="preview-clear" id="single-preview-clear">✕</button>
+                </div>
+                <div class="form-row">
+                  <label class="field-label">Jumlah Soal</label>
+                  <input type="number" name="total" min="1" value="35" inputmode="numeric" class="field-input field-input-sm" />
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" name="debug" value="true" checked />
+                  <span>Tampilkan debug OCR</span>
+                </label>
+                <div class="btn-group-scan">
+                  <button type="button" id="btn-open-scanner" class="btn-outline btn-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    Kamera
+                  </button>
+                  <button type="submit" class="btn-primary btn-scan">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                    Scan Sekarang
+                  </button>
+                </div>
+              </form>
+
+              <section id="scanner-panel" class="scanner-panel hidden">
+                <div class="scanner-header">
+                  <h3>Kamera Scanner</h3>
+                  <button type="button" id="btn-close-scanner" class="icon-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+                <div class="camera-viewport">
+                  <video id="scanner-video" class="scanner-video" playsinline autoplay muted></video>
+                  <canvas id="scanner-canvas" class="hidden"></canvas>
+                  <div class="camera-guide"></div>
+                </div>
+                <div class="scanner-actions">
+                  <button type="button" id="btn-capture-scan" class="btn-capture">
+                    <div class="capture-ring"></div>
+                  </button>
+                </div>
+                <p id="scanner-status" class="scanner-status-text">Scanner belum aktif.</p>
+              </section>
+
+              <div id="single-output" class="output"></div>
+              <div id="single-debug" class="debug-panel"></div>
+            </div>
+          </div>
+
+          <!-- Bulk Scan -->
+          <div id="mode-bulk" class="mode-panel hidden">
+            <div class="card">
+              <form id="bulk-form" class="scan-form">
+                <div class="dropzone dropzone-multi">
+                  <div class="dropzone-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="40" height="40"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  </div>
+                  <div class="dropzone-text">
+                    <strong>Pilih Banyak Gambar</strong>
+                    <span>Bisa memilih banyak file sekaligus dari galeri</span>
+                  </div>
+                  <input type="file" name="files" class="file-input dropzone-input" accept="image/*" multiple required />
+                </div>
+                <div class="form-row">
+                  <label class="field-label">Jumlah Soal</label>
+                  <input type="number" name="total" min="1" value="35" inputmode="numeric" class="field-input field-input-sm" />
+                </div>
+                <button type="submit" class="btn-primary btn-scan">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  Scan Semua
+                </button>
+              </form>
+              <div id="bulk-summary" class="bulk-summary"></div>
+              <div id="bulk-output" class="output"></div>
+            </div>
+          </div>
+
+          <!-- Hardware Scanner -->
+          <div id="mode-hardware" class="mode-panel hidden">
+            <div class="card">
+              <div class="scanner-hw-header">
+                <h3 class="section-title">Scanner Hardware</h3>
+                <button type="button" id="btn-refresh-hardware-scanners" class="btn-outline btn-sm">Refresh</button>
               </div>
-              <p id="hardware-scan-indicator-detail" class="mini">Waiting for scanner process.</p>
+              <select id="hardware-scanner-select" class="field-input">
+                <option value="">Pilih scanner otomatis</option>
+              </select>
+              <div id="hardware-scan-indicator" class="hw-scan-indicator hidden">
+                <div class="hw-scan-indicator-row">
+                  <span class="hw-dot"></span>
+                  <strong id="hardware-scan-indicator-title">Menyiapkan scanner...</strong>
+                </div>
+                <p id="hardware-scan-indicator-detail" class="hw-detail">Menunggu proses scanner.</p>
+              </div>
+              <button type="button" id="btn-hardware-scan" class="btn-primary btn-scan mt-3">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                Scan dengan Scanner
+              </button>
             </div>
-            <label>
-              Total questions
-              <input type="number" name="total" min="1" value="35" inputmode="numeric" />
-            </label>
-            <label class="checkbox-row">
-              <input type="checkbox" name="debug" value="true" checked />
-              Show OCR debug view
-            </label>
-            <button type="submit">Scan Single</button>
-          </form>
-          <section id="scanner-panel" class="scanner-panel hidden" aria-live="polite">
-            <h3>Camera Scanner</h3>
-            <video id="scanner-video" class="scanner-video" playsinline autoplay muted></video>
-            <canvas id="scanner-canvas" class="hidden"></canvas>
-            <div class="scanner-actions">
-              <button type="button" id="btn-capture-scan" class="secondary-btn">Capture Scan</button>
-              <button type="button" id="btn-close-scanner" class="secondary-btn">Close Scanner</button>
-            </div>
-            <p id="scanner-status" class="mini">Scanner not active.</p>
-          </section>
-          <div id="single-output" class="output"></div>
-          <div id="single-debug" class="debug-panel"></div>
-        </article>
+          </div>
 
-        <article class="card">
-          <h2>Bulk Upload</h2>
-          <form id="bulk-form" class="form">
-            <label>
-              Multiple images
-              <input type="file" name="files" class="file-input" accept="image/*" multiple required />
-            </label>
-            <p class="mini form-tip">Bulk upload works best from gallery/files. Camera capture is used for the single-scan flow.</p>
-            <label>
-              Total questions
-              <input type="number" name="total" min="1" value="35" inputmode="numeric" />
-            </label>
-            <button type="submit">Scan Bulk</button>
-          </form>
-          <div id="bulk-summary" class="summary"></div>
-          <div id="bulk-output" class="output"></div>
-        </article>
-      </section>
-    </main>
+        </div>
+        <!-- end tab-scan -->
+
+        <!-- TAB: KUNCI JAWABAN -->
+        <div id="tab-key" class="tab-panel">
+          <div class="card">
+            <h2 class="card-title">Kunci Jawaban</h2>
+            <div class="key-badge" id="key-status">Memuat...</div>
+            <div class="form-group">
+              <button type="button" id="btn-download-template" class="btn-outline">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download Template
+              </button>
+              <label class="btn-outline btn-file-label">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload Kunci
+                <input type="file" id="key-file-input" class="hidden-input" accept=".json,.csv,.txt" />
+              </label>
+              <button type="button" id="btn-upload-key" class="btn-primary">Simpan Kunci</button>
+            </div>
+            <div id="key-output" class="output"></div>
+          </div>
+        </div>
+
+        <!-- TAB: KALIBRASI -->
+        <div id="tab-calibration" class="tab-panel">
+          <div class="card">
+            <h2 class="card-title">Kalibrasi OCR</h2>
+            <p class="card-desc">Atur posisi blok, jarak baris, dan threshold untuk scan berikutnya.</p>
+            <div class="preset-toolbar">
+              <div class="preset-select-wrap">
+                <label class="field-label">Preset</label>
+                <select id="preset-select" class="field-input"></select>
+              </div>
+              <div class="preset-name-wrap">
+                <label class="field-label">Nama Preset Baru</label>
+                <input type="text" id="preset-name" placeholder="misal: kamera-1" class="field-input" />
+              </div>
+            </div>
+            <div class="preset-actions">
+              <button type="button" id="btn-save-preset" class="btn-primary btn-sm">Simpan</button>
+              <button type="button" id="btn-delete-preset" class="btn-outline btn-sm">Hapus</button>
+              <button type="button" id="btn-reset-calibration" class="btn-outline btn-sm btn-danger">Reset Default</button>
+            </div>
+            <div id="calibration-form" class="calibration-form"></div>
+            <div id="calibration-output" class="output"></div>
+          </div>
+        </div>
+
+      </main>
+    </div>
 
     <script src="/config.js"></script>
     <script src="/app.js"></script>
+    <script>
+      // Tab switching
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('tab-panel-active'));
+          btn.classList.add('tab-active');
+          document.getElementById(btn.dataset.tab)?.classList.add('tab-panel-active');
+        });
+      });
+      // Scan mode switching
+      document.querySelectorAll('.mode-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.mode-pill').forEach(b => b.classList.remove('mode-active'));
+          document.querySelectorAll('.mode-panel').forEach(p => p.classList.add('hidden'));
+          btn.classList.add('mode-active');
+          document.getElementById('mode-' + btn.dataset.mode)?.classList.remove('hidden');
+        });
+      });
+      // Dropzone click
+      document.querySelectorAll('.dropzone').forEach(zone => {
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dropzone-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('dropzone-over'));
+        zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('dropzone-over'); });
+        zone.addEventListener('click', e => { if (e.target.tagName !== 'INPUT') zone.querySelector('.dropzone-input')?.click(); });
+      });
+      // Single file preview
+      const singleInput = document.getElementById('single-file-input');
+      const previewWrap = document.getElementById('single-preview-wrap');
+      const previewImg = document.getElementById('single-preview-img');
+      const previewClear = document.getElementById('single-preview-clear');
+      if (singleInput) {
+        singleInput.addEventListener('change', e => {
+          const file = e.target.files[0];
+          if (!file) return;
+          previewImg.src = URL.createObjectURL(file);
+          previewWrap.classList.remove('hidden');
+        });
+      }
+      if (previewClear) {
+        previewClear.addEventListener('click', () => {
+          previewImg.src = '';
+          previewWrap.classList.add('hidden');
+          if (singleInput) singleInput.value = '';
+        });
+      }
+    </script>
   </body>
 </html>
