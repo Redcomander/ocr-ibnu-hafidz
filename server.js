@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const sharp = require('sharp');
+const jwt = require('jsonwebtoken');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const {
@@ -31,6 +32,78 @@ const upload = multer({
 
 const PORT = process.env.PORT || 3099;
 const defaultKeyPath = path.resolve(__dirname, 'answer_key.json');
+const AUTH_MODE = String(process.env.OCR_AUTH_MODE || 'none').trim().toLowerCase();
+const MAIN_JWT_SECRET = String(process.env.MAIN_JWT_SECRET || '').trim();
+const MAIN_AUTH_ME_URL = String(process.env.MAIN_AUTH_ME_URL || '').trim();
+const PUBLIC_API_PATHS = new Set(['/api/health', '/api/capabilities', '/api/auth/status']);
+
+function parseBearerToken(authHeader) {
+  const value = String(authHeader || '').trim();
+  if (!value) {
+    return '';
+  }
+  const parts = value.split(' ');
+  if (parts.length === 2 && /^bearer$/i.test(parts[0])) {
+    return String(parts[1] || '').trim();
+  }
+  return '';
+}
+
+async function validateTokenWithMainApi(token) {
+  if (!MAIN_AUTH_ME_URL) {
+    throw new Error('MAIN_AUTH_ME_URL is not configured.');
+  }
+
+  const response = await fetch(MAIN_AUTH_ME_URL, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Main auth API rejected token (status ${response.status}).`);
+  }
+
+  const payload = await response.json();
+  return payload;
+}
+
+async function resolveAuthenticatedUser(token) {
+  if (!token) {
+    throw new Error('Missing bearer token.');
+  }
+
+  if (MAIN_AUTH_ME_URL) {
+    return validateTokenWithMainApi(token);
+  }
+
+  if (!MAIN_JWT_SECRET) {
+    throw new Error('MAIN_JWT_SECRET is not configured.');
+  }
+
+  return jwt.verify(token, MAIN_JWT_SECRET);
+}
+
+async function authMiddleware(req, res, next) {
+  try {
+    if (AUTH_MODE === 'none') {
+      return next();
+    }
+
+    if (!req.path.startsWith('/api/') || PUBLIC_API_PATHS.has(req.path)) {
+      return next();
+    }
+
+    const token = parseBearerToken(req.get('Authorization'));
+    const user = await resolveAuthenticatedUser(token);
+    req.authUser = user;
+    return next();
+  } catch (error) {
+    return res.status(401).json({ error: error.message || 'Unauthorized' });
+  }
+}
 
 function getKeyMap() {
   if (!fs.existsSync(defaultKeyPath)) {
@@ -345,6 +418,7 @@ async function acquireFromWindowsScanner(scannerDeviceId) {
 
 app.use(express.json());
 app.use(cors());
+app.use(authMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/health', (_req, res) => {
@@ -353,6 +427,24 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/capabilities', (_req, res) => {
   res.json(getCapabilities());
+});
+
+app.get('/api/auth/status', async (req, res) => {
+  if (AUTH_MODE === 'none') {
+    return res.json({ enabled: false, authenticated: true, user: null });
+  }
+
+  const token = parseBearerToken(req.get('Authorization'));
+  if (!token) {
+    return res.json({ enabled: true, authenticated: false, user: null });
+  }
+
+  try {
+    const user = await resolveAuthenticatedUser(token);
+    return res.json({ enabled: true, authenticated: true, user });
+  } catch {
+    return res.json({ enabled: true, authenticated: false, user: null });
+  }
 });
 
 app.get('/api/scanner/devices', async (_req, res) => {

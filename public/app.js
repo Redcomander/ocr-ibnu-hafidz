@@ -4,6 +4,10 @@ const THEME_STORAGE_KEY = 'ocr-answer-reader-theme';
 const APP_CONFIG = window.OCR_APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
 const HARDWARE_SCANNER_API_BASE_URL = String(APP_CONFIG.hardwareScannerApiBaseUrl || '').trim().replace(/\/+$/, '');
+const AUTH_TOKEN_QUERY_PARAM = String(APP_CONFIG.authTokenQueryParam || 'token').trim() || 'token';
+const AUTH_TOKEN_STORAGE_KEYS = Array.isArray(APP_CONFIG.authTokenStorageKeys)
+  ? APP_CONFIG.authTokenStorageKeys
+  : ['ibnu_hafidz_access_token', 'access_token', 'token'];
 const IMAGE_COMPRESSION_MAX_DIMENSION = 1800;
 const IMAGE_COMPRESSION_QUALITY = 0.84;
 
@@ -22,6 +26,9 @@ const state = {
   selectedScannerDeviceId: '',
   hardwareScanInProgress: false,
   hardwareScanIndicatorTimer: null,
+  authToken: '',
+  authEnabled: false,
+  authUser: null,
 };
 
 const dragState = {
@@ -88,8 +95,46 @@ function saveStoredPresets() {
   localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(state.presets));
 }
 
+function resolveAuthToken() {
+  const params = new URLSearchParams(window.location.search || '');
+  const queryToken = String(params.get(AUTH_TOKEN_QUERY_PARAM) || '').trim();
+  if (queryToken) {
+    return queryToken;
+  }
+
+  for (const key of AUTH_TOKEN_STORAGE_KEYS) {
+    const localToken = String(localStorage.getItem(key) || '').trim();
+    if (localToken) {
+      return localToken;
+    }
+
+    const sessionToken = String(sessionStorage.getItem(key) || '').trim();
+    if (sessionToken) {
+      return sessionToken;
+    }
+  }
+
+  return '';
+}
+
+function buildAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (state.authToken) {
+    headers.Authorization = `Bearer ${state.authToken}`;
+  }
+  return headers;
+}
+
+async function authorizedFetch(url, options = {}) {
+  const headers = buildAuthHeaders(options.headers || {});
+  return fetch(url, {
+    ...options,
+    headers,
+  });
+}
+
 async function postForm(url, formData) {
-  const res = await fetch(buildApiUrl(url), {
+  const res = await authorizedFetch(buildApiUrl(url), {
     method: 'POST',
     body: formData,
   });
@@ -1157,7 +1202,7 @@ function applyPreset(name) {
 }
 
 async function loadDefaultCalibration(silent = false) {
-  const res = await fetch(buildApiUrl('/api/calibration/default'));
+  const res = await authorizedFetch(buildApiUrl('/api/calibration/default'));
   const data = await res.json();
   state.calibration = deepClone(data.calibration);
   normalizeClientCalibration(state.calibration);
@@ -1169,7 +1214,7 @@ async function loadDefaultCalibration(silent = false) {
 
 async function loadKeyStatus() {
   try {
-    const res = await fetch(buildApiUrl('/api/answer-key/current'));
+    const res = await authorizedFetch(buildApiUrl('/api/answer-key/current'));
     const data = await res.json();
     const statusEl = document.getElementById('key-status');
 
@@ -1187,6 +1232,39 @@ async function loadKeyStatus() {
     const statusEl = document.getElementById('key-status');
     statusEl.className = 'key-status status-bad';
     statusEl.innerHTML = '<p class="bad">Error loading key status</p>';
+  }
+}
+
+async function loadAuthStatus() {
+  const authStatusEl = document.getElementById('auth-status');
+  if (!authStatusEl) {
+    return;
+  }
+
+  try {
+    const res = await authorizedFetch(buildApiUrl('/api/auth/status'));
+    const data = await res.json();
+    state.authEnabled = Boolean(data.enabled);
+    state.authUser = data.user || null;
+
+    if (!state.authEnabled) {
+      authStatusEl.className = 'key-status status-warn';
+      authStatusEl.innerHTML = '<strong>Auth disabled</strong><br><small>OCR service is running without token validation.</small>';
+      return;
+    }
+
+    if (data.authenticated) {
+      const displayName = data.user?.name || data.user?.email || data.user?.username || 'Authenticated user';
+      authStatusEl.className = 'key-status status-good';
+      authStatusEl.innerHTML = `<strong>Logged in</strong><br><small>${displayName}</small>`;
+      return;
+    }
+
+    authStatusEl.className = 'key-status status-bad';
+    authStatusEl.innerHTML = '<strong>Login required</strong><br><small>Open OCR from Ibnu Hafidz Web after login, or provide token in URL/local storage.</small>';
+  } catch (error) {
+    authStatusEl.className = 'key-status status-bad';
+    authStatusEl.innerHTML = `<strong>Auth check failed</strong><br><small>${error.message || 'Unable to verify token'}</small>`;
   }
 }
 
@@ -1213,7 +1291,7 @@ async function loadCapabilities() {
 
   for (const baseUrl of candidates) {
     try {
-      const res = await fetch(buildApiUrlFromBase(baseUrl, '/api/capabilities'));
+      const res = await authorizedFetch(buildApiUrlFromBase(baseUrl, '/api/capabilities'));
       if (!res.ok) {
         continue;
       }
@@ -1288,7 +1366,7 @@ function renderHardwareScannerOptions() {
 
 async function loadHardwareScannerDevices() {
   try {
-    const res = await fetch(buildHardwareScannerApiUrl('/api/scanner/devices'));
+    const res = await authorizedFetch(buildHardwareScannerApiUrl('/api/scanner/devices'));
     const data = await res.json();
     state.scannerDevices = Array.isArray(data.devices) ? data.devices : [];
     if (state.selectedScannerDeviceId) {
@@ -1744,7 +1822,21 @@ document.getElementById('btn-reset-calibration').addEventListener('click', async
 
 btnDownloadTemplate.addEventListener('click', async () => {
   try {
-    window.open(buildApiUrl('/api/answer-key/template?total=35'), '_blank');
+    const res = await authorizedFetch(buildApiUrl('/api/answer-key/template?total=35'));
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || `Request failed with status ${res.status}`);
+    }
+
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = blobUrl;
+    anchor.download = 'answer_key_template_35.json';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(blobUrl);
     keyOutput.innerHTML = '<p class="good">Template download started.</p>';
   } catch (error) {
     keyOutput.innerHTML = `<p class="bad">Download failed: ${error.message}</p>`;
@@ -1762,7 +1854,7 @@ btnUploadKey.addEventListener('click', async () => {
     formData.append('file', keyFileInput.files[0]);
     formData.append('total', 35);
 
-    const res = await fetch(buildApiUrl('/api/answer-key/upload'), {
+    const res = await authorizedFetch(buildApiUrl('/api/answer-key/upload'), {
       method: 'POST',
       body: formData,
     });
@@ -1884,9 +1976,10 @@ window.addEventListener('beforeunload', () => {
 
 async function init() {
   applyTheme(getPreferredTheme());
+  state.authToken = resolveAuthToken();
   state.presets = getStoredPresets();
   updatePresetSelect();
-  await Promise.all([loadDefaultCalibration(true), loadKeyStatus(), loadCapabilities()]);
+  await Promise.all([loadDefaultCalibration(true), loadKeyStatus(), loadCapabilities(), loadAuthStatus()]);
   presetSelect.value = DEFAULT_PRESET_NAME;
   setInterval(loadKeyStatus, 5000);
 }
