@@ -92,4 +92,4 @@ For this Node.js workload with native dependencies (Express + Sharp + Tesseract)
 
 **Important Deployment Notes:**
 - Free tier services may sleep when idle, causing the first request to be slow.
-- Local file writes (like modifications to `answer_key.json` via UI) may reset after redeploy/restart due to ephemeral filesystems. Consider migrating to a database or object storage for persistent key management in a production environment.
+- Local file writes (like modifications to `answer_key.json` via UI) may reset after redeploy/restart due to ephemeral filesystems. Consider migrating to a database or object storage for persistent key management in a production environment.# ocr-ibnu-hafidz
