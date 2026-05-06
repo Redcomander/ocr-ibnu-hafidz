@@ -1201,8 +1201,8 @@ function applyPreset(name) {
   document.getElementById('calibration-output').innerHTML = `<p class="good">Loaded preset: ${name}</p>`;
 }
 
-async function loadDefaultCalibration(silent = false) {
-  const res = await authorizedFetch(buildApiUrl('/api/calibration/default'));
+async function loadDefaultCalibration(silent = false, total = getSelectedTotal(singleForm)) {
+  const res = await authorizedFetch(buildApiUrl(`/api/calibration/default?total=${normalizeSelectedTotal(total)}`));
   const data = await res.json();
   state.calibration = deepClone(data.calibration);
   normalizeClientCalibration(state.calibration);
@@ -1438,8 +1438,35 @@ const scannerCanvas = document.getElementById('scanner-canvas');
 const btnCaptureScan = document.getElementById('btn-capture-scan');
 const btnCloseScanner = document.getElementById('btn-close-scanner');
 const scannerStatus = document.getElementById('scanner-status');
+const singleTotalInput = singleForm.querySelector('[name="total"]');
+const bulkTotalInput = bulkForm.querySelector('[name="total"]');
 
 let scannerStream = null;
+
+function normalizeSelectedTotal(value) {
+  const total = Number(value);
+  if (total === 30 || total === 35 || total === 50) {
+    return total;
+  }
+  return 35;
+}
+
+function getSelectedTotal(form = singleForm) {
+  return normalizeSelectedTotal(form?.querySelector?.('[name="total"]')?.value);
+}
+
+function syncSelectedTotal(total, reloadCalibration = true) {
+  const normalized = normalizeSelectedTotal(total);
+  if (singleTotalInput) {
+    singleTotalInput.value = String(normalized);
+  }
+  if (bulkTotalInput) {
+    bulkTotalInput.value = String(normalized);
+  }
+  if (reloadCalibration) {
+    loadDefaultCalibration(true, normalized);
+  }
+}
 
 function getSingleSourceFile() {
   return state.scanSourceFile || singleFileInput.files?.[0] || null;
@@ -1841,7 +1868,8 @@ document.getElementById('btn-reset-calibration').addEventListener('click', async
 
 btnDownloadTemplate.addEventListener('click', async () => {
   try {
-    const res = await authorizedFetch(buildApiUrl('/api/answer-key/template?total=35'));
+    const total = getSelectedTotal(singleForm);
+    const res = await authorizedFetch(buildApiUrl(`/api/answer-key/template?total=${total}`));
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
       throw new Error(payload.error || `Request failed with status ${res.status}`);
@@ -1851,7 +1879,7 @@ btnDownloadTemplate.addEventListener('click', async () => {
     const blobUrl = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = blobUrl;
-    anchor.download = 'answer_key_template_35.json';
+    anchor.download = `answer_key_template_${total}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -1871,7 +1899,7 @@ btnUploadKey.addEventListener('click', async () => {
 
     const formData = new FormData();
     formData.append('file', keyFileInput.files[0]);
-    formData.append('total', 35);
+    formData.append('total', getSelectedTotal(singleForm));
 
     const res = await authorizedFetch(buildApiUrl('/api/answer-key/upload'), {
       method: 'POST',
@@ -1907,6 +1935,14 @@ singleFileInput.addEventListener('change', () => {
       ? `Selected from gallery: ${singleFileInput.files[0].name}`
       : 'Scanner not active.';
   }
+});
+
+singleTotalInput?.addEventListener('change', () => {
+  syncSelectedTotal(getSelectedTotal(singleForm));
+});
+
+bulkTotalInput?.addEventListener('change', () => {
+  syncSelectedTotal(getSelectedTotal(bulkForm));
 });
 
 btnOpenScanner.addEventListener('click', async () => {

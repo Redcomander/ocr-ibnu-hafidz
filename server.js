@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const {
+  getCalibrationPreset,
   DEFAULT_CALIBRATION,
   loadAnswerKey,
   sanitizeCalibration,
@@ -576,8 +577,9 @@ app.get('/api/scanner/devices', async (_req, res) => {
   }
 });
 
-app.get('/api/calibration/default', (_req, res) => {
-  res.json({ calibration: DEFAULT_CALIBRATION });
+app.get('/api/calibration/default', (req, res) => {
+  const total = Number(req.query.total || 35);
+  res.json({ calibration: getCalibrationPreset(total), total });
 });
 
 app.post('/api/scan', upload.single('file'), async (req, res) => {
@@ -590,7 +592,9 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
     const keyMap = resolveKeyMapForRequest(req);
-    const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
+    const calibration = req.body.calibration
+      ? sanitizeCalibration(JSON.parse(String(req.body.calibration)), total)
+      : getCalibrationPreset(total);
 
     const result = await scanBuffer({
       fileBuffer: req.file.buffer,
@@ -624,7 +628,9 @@ app.post('/api/scan-hardware', upload.none(), async (req, res) => {
     const rotation = sanitizeRotation(body.rotation || 0);
     const scannerDeviceId = String(body.scannerDeviceId || '').trim();
     const keyMap = resolveKeyMapForRequest(req);
-    const calibration = body.calibration ? sanitizeCalibration(JSON.parse(String(body.calibration))) : DEFAULT_CALIBRATION;
+    const calibration = body.calibration
+      ? sanitizeCalibration(JSON.parse(String(body.calibration)), total)
+      : getCalibrationPreset(total);
     const scannedBuffer = await acquireFromWindowsScanner(scannerDeviceId);
 
     const result = await scanBuffer({
@@ -659,7 +665,9 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
     const keyMap = resolveKeyMapForRequest(req);
-    const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
+    const calibration = req.body.calibration
+      ? sanitizeCalibration(JSON.parse(String(req.body.calibration)), total)
+      : getCalibrationPreset(total);
 
     const items = [];
 
