@@ -12,6 +12,7 @@ const {
   getCalibrationPreset,
   DEFAULT_CALIBRATION,
   loadAnswerKey,
+  normalizeOptionChoices,
   sanitizeCalibration,
   sanitizeRotation,
   scanBuffer,
@@ -579,7 +580,9 @@ app.get('/api/scanner/devices', async (_req, res) => {
 
 app.get('/api/calibration/default', (req, res) => {
   const total = Number(req.query.total || 35);
-  res.json({ calibration: getCalibrationPreset(total), total });
+  const optionChoices = normalizeOptionChoices(req.query.optionChoices || req.query.options || 'ABCDE');
+  const calibration = sanitizeCalibration(getCalibrationPreset(total), total, optionChoices);
+  res.json({ calibration, total, optionChoices });
 });
 
 app.post('/api/scan', upload.single('file'), async (req, res) => {
@@ -589,12 +592,13 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
     }
 
     const total = Number(req.body.total || 35);
+    const optionChoices = normalizeOptionChoices(req.body.optionChoices || req.body.options || 'ABCDE');
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
     const keyMap = resolveKeyMapForRequest(req);
     const calibration = req.body.calibration
-      ? sanitizeCalibration(JSON.parse(String(req.body.calibration)), total)
-      : getCalibrationPreset(total);
+      ? sanitizeCalibration(JSON.parse(String(req.body.calibration)), total, optionChoices)
+      : sanitizeCalibration(getCalibrationPreset(total), total, optionChoices);
 
     const result = await scanBuffer({
       fileBuffer: req.file.buffer,
@@ -602,6 +606,7 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
       total,
       lang,
       rotation,
+      optionChoices,
       includeDebug: String(req.body.debug || 'true') !== 'false',
       calibration,
     });
@@ -624,13 +629,14 @@ app.post('/api/scan-hardware', upload.none(), async (req, res) => {
 
     const body = req.body || {};
     const total = Number(body.total || 35);
+    const optionChoices = normalizeOptionChoices(body.optionChoices || body.options || 'ABCDE');
     const lang = String(body.lang || 'eng');
     const rotation = sanitizeRotation(body.rotation || 0);
     const scannerDeviceId = String(body.scannerDeviceId || '').trim();
     const keyMap = resolveKeyMapForRequest(req);
     const calibration = body.calibration
-      ? sanitizeCalibration(JSON.parse(String(body.calibration)), total)
-      : getCalibrationPreset(total);
+      ? sanitizeCalibration(JSON.parse(String(body.calibration)), total, optionChoices)
+      : sanitizeCalibration(getCalibrationPreset(total), total, optionChoices);
     const scannedBuffer = await acquireFromWindowsScanner(scannerDeviceId);
 
     const result = await scanBuffer({
@@ -639,6 +645,7 @@ app.post('/api/scan-hardware', upload.none(), async (req, res) => {
       total,
       lang,
       rotation,
+      optionChoices,
       includeDebug: String(body.debug || 'true') !== 'false',
       calibration,
     });
@@ -662,12 +669,13 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
     }
 
     const total = Number(req.body.total || 35);
+    const optionChoices = normalizeOptionChoices(req.body.optionChoices || req.body.options || 'ABCDE');
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
     const keyMap = resolveKeyMapForRequest(req);
     const calibration = req.body.calibration
-      ? sanitizeCalibration(JSON.parse(String(req.body.calibration)), total)
-      : getCalibrationPreset(total);
+      ? sanitizeCalibration(JSON.parse(String(req.body.calibration)), total, optionChoices)
+      : sanitizeCalibration(getCalibrationPreset(total), total, optionChoices);
 
     const items = [];
 
@@ -678,6 +686,7 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
         total,
         lang,
         rotation,
+        optionChoices,
         includeDebug: false,
         calibration,
       });
@@ -718,7 +727,8 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
 
 app.get('/api/answer-key/template', (_req, res) => {
   const totalQuestions = Number(_req.query.total || 35);
-  const template = generateAnswerKeyTemplate(totalQuestions);
+  const optionChoices = normalizeOptionChoices(_req.query.optionChoices || _req.query.options || 'ABCDE');
+  const template = generateAnswerKeyTemplate(totalQuestions, optionChoices);
 
   res.set('Content-Type', 'application/json');
   res.set('Content-Disposition', `attachment; filename="answer_key_template_${totalQuestions}.json"`);
@@ -755,7 +765,8 @@ app.post('/api/answer-key', (req, res) => {
 
     const keyMap = extractKeyMapFromPayload(req.body);
     const totalQuestions = Number(req.body?.total || Math.max(35, Object.keys(keyMap).length || 35));
-    const validation = validateAnswerKey(keyMap, totalQuestions);
+    const optionChoices = normalizeOptionChoices(req.body?.optionChoices || req.body?.options || 'ABCDE');
+    const validation = validateAnswerKey(keyMap, totalQuestions, optionChoices);
     if (!validation.valid) {
       return res.status(400).json({
         error: 'Invalid answer key',
@@ -798,7 +809,8 @@ app.put('/api/answer-key/:id', (req, res) => {
 
     const keyMap = extractKeyMapFromPayload(req.body);
     const totalQuestions = Number(req.body?.total || Math.max(35, Object.keys(keyMap).length || 35));
-    const validation = validateAnswerKey(keyMap, totalQuestions);
+    const optionChoices = normalizeOptionChoices(req.body?.optionChoices || req.body?.options || 'ABCDE');
+    const validation = validateAnswerKey(keyMap, totalQuestions, optionChoices);
     if (!validation.valid) {
       return res.status(400).json({
         error: 'Invalid answer key',
@@ -839,15 +851,16 @@ app.post('/api/answer-key/upload', upload.single('file'), async (req, res) => {
     }
 
     const totalQuestions = Number(req.body.total || 35);
+    const optionChoices = normalizeOptionChoices(req.body.optionChoices || req.body.options || 'ABCDE');
     let keyObj;
 
     if (req.file.mimetype === 'application/json' || req.file.originalname.endsWith('.json')) {
       keyObj = JSON.parse(req.file.buffer.toString('utf-8'));
     } else {
-      keyObj = parseAnswerKeyFromText(req.file.buffer.toString('utf-8'));
+      keyObj = parseAnswerKeyFromText(req.file.buffer.toString('utf-8'), optionChoices);
     }
 
-    const validation = validateAnswerKey(keyObj, totalQuestions);
+    const validation = validateAnswerKey(keyObj, totalQuestions, optionChoices);
     if (!validation.valid) {
       return res.status(400).json({
         error: 'Invalid answer key',

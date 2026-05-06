@@ -518,6 +518,10 @@ function renderOptionScores(optionScores) {
     .join('');
 }
 
+function getOptionLabelsForResult(result) {
+  return normalizeOptionChoices(result?.optionChoices || state?.calibration?.optionChoices || getSelectedOptionChoices(singleForm)).split('');
+}
+
 function overlaySource(debug) {
   if (!debug) {
     return '';
@@ -604,6 +608,8 @@ function setSelectedTarget(blockIndex, mode) {
 
 function renderDragEditor(result) {
   const debug = result.debug;
+  const optionLabels = getOptionLabelsForResult(result);
+  const optionCount = Math.max(1, optionLabels.length);
   const width = Number(debug.width || 1);
   const height = Number(debug.height || 1);
   const compactViewport = window.matchMedia('(max-width: 900px)').matches;
@@ -630,12 +636,12 @@ function renderDragEditor(result) {
     const rowTopY = y + h * (block.rowTop ?? 0);
     const rowBottomY = y + h * (block.rowBottom ?? 1);
     const optionsW = Math.max(1, x + w - splitX);
-    const colW = optionsW / 5;
+    const colW = optionsW / optionCount;
     const rowH = Math.max(1, (rowBottomY - rowTopY) / Math.max(1, block.count));
     const endQ = block.startQ + block.count - 1;
     const selected = dragState.selectedBlockIndex === index ? 'is-selected' : '';
 
-    const optionBoundaries = Array.from({ length: 6 }, (_, i) => {
+    const optionBoundaries = Array.from({ length: optionCount + 1 }, (_, i) => {
       const px = splitX + i * colW;
       return `<line class="drag-col-guide" data-block-index="${index}" data-col-index="${i}" x1="${px}" y1="${rowTopY}" x2="${px}" y2="${rowBottomY}" />`;
     }).join('');
@@ -645,7 +651,7 @@ function renderDragEditor(result) {
       return `<line class="drag-cell-row-guide" data-block-index="${index}" data-row-index="${i}" x1="${x}" y1="${py}" x2="${x + w}" y2="${py}" />`;
     }).join('');
 
-    const optionLabels = ['A', 'B', 'C', 'D', 'E']
+    const optionLabelNodes = optionLabels
       .map((label, i) => {
         const lx = splitX + i * colW + colW * 0.5;
         const ly = Math.max(y + 14, rowTopY - 6);
@@ -665,7 +671,7 @@ function renderDragEditor(result) {
         <rect class="drag-block" data-block-index="${index}" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" />
         ${rowBoundaries}
         ${optionBoundaries}
-        ${optionLabels}
+        ${optionLabelNodes}
         ${rowNumbers}
         <line class="drag-split" data-block-index="${index}" x1="${splitX}" y1="${y}" x2="${splitX}" y2="${y + h}" />
         <line class="drag-row-guide" data-guide="top" data-block-index="${index}" x1="${x}" y1="${rowTopY}" x2="${x + w}" y2="${rowTopY}" />
@@ -750,6 +756,7 @@ function renderDiagnostics(result) {
   }
 
   const effective = getEffectiveResult(result);
+  const optionLabels = getOptionLabelsForResult(result);
   const previewRotation = getPreviewRotation(result);
   const rows = (result.diagnostics || [])
     .map((row) => {
@@ -768,7 +775,7 @@ function renderDiagnostics(result) {
           <td>
             <select class="correction-select" data-qn="${row.qn}">
               <option value="">Use model</option>
-              ${['A', 'B', 'C', 'D', 'E']
+              ${optionLabels
                 .map((label) => `<option value="${label}" ${corrected === label ? 'selected' : ''}>${label}</option>`)
                 .join('')}
             </select>
@@ -1201,9 +1208,19 @@ function applyPreset(name) {
   document.getElementById('calibration-output').innerHTML = `<p class="good">Loaded preset: ${name}</p>`;
 }
 
-async function loadDefaultCalibration(silent = false, total = getSelectedTotal(singleForm)) {
-  const res = await authorizedFetch(buildApiUrl(`/api/calibration/default?total=${normalizeSelectedTotal(total)}`));
+async function loadDefaultCalibration(
+  silent = false,
+  total = getSelectedTotal(singleForm),
+  optionChoices = getSelectedOptionChoices(singleForm)
+) {
+  const normalizedTotal = normalizeSelectedTotal(total);
+  const normalizedOptions = normalizeOptionChoices(optionChoices);
+  const res = await authorizedFetch(
+    buildApiUrl(`/api/calibration/default?total=${normalizedTotal}&optionChoices=${normalizedOptions}`)
+  );
   const data = await res.json();
+  syncSelectedTotal(normalizedTotal, false);
+  syncSelectedOptionChoices(data?.optionChoices || normalizedOptions, false);
   state.calibration = deepClone(data.calibration);
   normalizeClientCalibration(state.calibration);
   renderCalibrationForm();
@@ -1440,6 +1457,8 @@ const btnCloseScanner = document.getElementById('btn-close-scanner');
 const scannerStatus = document.getElementById('scanner-status');
 const singleTotalInput = singleForm.querySelector('[name="total"]');
 const bulkTotalInput = bulkForm.querySelector('[name="total"]');
+const singleOptionChoicesInput = singleForm.querySelector('[name="optionChoices"]');
+const bulkOptionChoicesInput = bulkForm.querySelector('[name="optionChoices"]');
 
 let scannerStream = null;
 
@@ -1449,6 +1468,14 @@ function normalizeSelectedTotal(value) {
     return total;
   }
   return 35;
+}
+
+function normalizeOptionChoices(value) {
+  return String(value || '').toUpperCase() === 'ABCD' ? 'ABCD' : 'ABCDE';
+}
+
+function getSelectedOptionChoices(form = singleForm) {
+  return normalizeOptionChoices(form?.querySelector?.('[name="optionChoices"]')?.value);
 }
 
 function getSelectedTotal(form = singleForm) {
@@ -1464,7 +1491,20 @@ function syncSelectedTotal(total, reloadCalibration = true) {
     bulkTotalInput.value = String(normalized);
   }
   if (reloadCalibration) {
-    loadDefaultCalibration(true, normalized);
+    loadDefaultCalibration(true, normalized, getSelectedOptionChoices(singleForm));
+  }
+}
+
+function syncSelectedOptionChoices(optionChoices, reloadCalibration = true) {
+  const normalized = normalizeOptionChoices(optionChoices);
+  if (singleOptionChoicesInput) {
+    singleOptionChoicesInput.value = normalized;
+  }
+  if (bulkOptionChoicesInput) {
+    bulkOptionChoicesInput.value = normalized;
+  }
+  if (reloadCalibration) {
+    loadDefaultCalibration(true, getSelectedTotal(singleForm), normalized);
   }
 }
 
@@ -1869,7 +1909,8 @@ document.getElementById('btn-reset-calibration').addEventListener('click', async
 btnDownloadTemplate.addEventListener('click', async () => {
   try {
     const total = getSelectedTotal(singleForm);
-    const res = await authorizedFetch(buildApiUrl(`/api/answer-key/template?total=${total}`));
+    const optionChoices = getSelectedOptionChoices(singleForm);
+    const res = await authorizedFetch(buildApiUrl(`/api/answer-key/template?total=${total}&optionChoices=${optionChoices}`));
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
       throw new Error(payload.error || `Request failed with status ${res.status}`);
@@ -1900,6 +1941,7 @@ btnUploadKey.addEventListener('click', async () => {
     const formData = new FormData();
     formData.append('file', keyFileInput.files[0]);
     formData.append('total', getSelectedTotal(singleForm));
+    formData.append('optionChoices', getSelectedOptionChoices(singleForm));
 
     const res = await authorizedFetch(buildApiUrl('/api/answer-key/upload'), {
       method: 'POST',
@@ -1943,6 +1985,14 @@ singleTotalInput?.addEventListener('change', () => {
 
 bulkTotalInput?.addEventListener('change', () => {
   syncSelectedTotal(getSelectedTotal(bulkForm));
+});
+
+singleOptionChoicesInput?.addEventListener('change', () => {
+  syncSelectedOptionChoices(getSelectedOptionChoices(singleForm));
+});
+
+bulkOptionChoicesInput?.addEventListener('change', () => {
+  syncSelectedOptionChoices(getSelectedOptionChoices(bulkForm));
 });
 
 btnOpenScanner.addEventListener('click', async () => {
