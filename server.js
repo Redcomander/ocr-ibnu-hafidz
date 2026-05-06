@@ -32,6 +32,7 @@ const upload = multer({
 
 const PORT = process.env.PORT || 3099;
 const defaultKeyPath = path.resolve(__dirname, 'answer_key.json');
+const answerKeysPath = path.resolve(__dirname, 'answer_keys.json');
 const AUTH_MODE = String(process.env.OCR_AUTH_MODE || 'none').trim().toLowerCase();
 const MAIN_JWT_SECRET = String(process.env.MAIN_JWT_SECRET || '').trim();
 const MAIN_AUTH_ME_URL = String(process.env.MAIN_AUTH_ME_URL || '').trim();
@@ -110,6 +111,120 @@ function getKeyMap() {
     return null;
   }
   return loadAnswerKey(defaultKeyPath);
+}
+
+function readAnswerKeysStore() {
+  if (!fs.existsSync(answerKeysPath)) {
+    return [];
+  }
+
+  try {
+    const raw = fs.readFileSync(answerKeysPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAnswerKeysStore(items) {
+  fs.writeFileSync(answerKeysPath, JSON.stringify(items, null, 2));
+}
+
+function normalizeKeyMap(input) {
+  if (!input || typeof input !== 'object') {
+    return {};
+  }
+
+  const result = {};
+  for (const [key, value] of Object.entries(input)) {
+    const question = Number(key);
+    if (!Number.isFinite(question) || question <= 0) {
+      continue;
+    }
+
+    const cleaned = String(value || '').trim().toUpperCase();
+    if (!cleaned) {
+      continue;
+    }
+    result[String(question)] = cleaned;
+  }
+  return result;
+}
+
+function normalizeAnswerArray(answers) {
+  if (!Array.isArray(answers)) {
+    return {};
+  }
+
+  const mapped = {};
+  answers.forEach((value, idx) => {
+    const cleaned = String(value || '').trim().toUpperCase();
+    if (!cleaned) {
+      return;
+    }
+    mapped[String(idx + 1)] = cleaned;
+  });
+  return mapped;
+}
+
+function extractKeyMapFromPayload(payload) {
+  if (Array.isArray(payload?.answers)) {
+    return normalizeAnswerArray(payload.answers);
+  }
+
+  if (payload?.answers && typeof payload.answers === 'object') {
+    return normalizeKeyMap(payload.answers);
+  }
+
+  if (payload && typeof payload === 'object') {
+    return normalizeKeyMap(payload);
+  }
+
+  return {};
+}
+
+function toAnswerArray(keyMap, total = 35) {
+  const size = Math.max(1, Number(total) || 35);
+  const out = Array(size).fill('');
+  for (let i = 1; i <= size; i += 1) {
+    out[i - 1] = String(keyMap?.[String(i)] || '').toUpperCase();
+  }
+  return out;
+}
+
+function toAnswerKeySummary(item) {
+  const count = Object.keys(item.keyMap || {}).length;
+  return {
+    id: item.id,
+    name: item.name,
+    count,
+    preview: Object.fromEntries(Object.entries(item.keyMap || {}).slice(0, 5)),
+    created_at: item.createdAt,
+    updated_at: item.updatedAt,
+  };
+}
+
+function findStoredAnswerKeyById(id) {
+  const target = String(id || '').trim();
+  if (!target) {
+    return null;
+  }
+
+  const items = readAnswerKeysStore();
+  return items.find((item) => String(item.id) === target) || null;
+}
+
+function resolveKeyMapForRequest(req) {
+  const answerKeyId = String(req.body?.answerKeyId || '').trim();
+  if (answerKeyId) {
+    const selected = findStoredAnswerKeyById(answerKeyId);
+    if (selected && selected.keyMap && typeof selected.keyMap === 'object') {
+      return selected.keyMap;
+    }
+  }
+
+  return getKeyMap();
 }
 
 function getCapabilities() {
@@ -474,7 +589,7 @@ app.post('/api/scan', upload.single('file'), async (req, res) => {
     const total = Number(req.body.total || 35);
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
-    const keyMap = getKeyMap();
+    const keyMap = resolveKeyMapForRequest(req);
     const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
 
     const result = await scanBuffer({
@@ -508,7 +623,7 @@ app.post('/api/scan-hardware', upload.none(), async (req, res) => {
     const lang = String(body.lang || 'eng');
     const rotation = sanitizeRotation(body.rotation || 0);
     const scannerDeviceId = String(body.scannerDeviceId || '').trim();
-    const keyMap = getKeyMap();
+    const keyMap = resolveKeyMapForRequest(req);
     const calibration = body.calibration ? sanitizeCalibration(JSON.parse(String(body.calibration))) : DEFAULT_CALIBRATION;
     const scannedBuffer = await acquireFromWindowsScanner(scannerDeviceId);
 
@@ -543,7 +658,7 @@ app.post('/api/scan-bulk', upload.array('files', 30), async (req, res) => {
     const total = Number(req.body.total || 35);
     const lang = String(req.body.lang || 'eng');
     const rotation = sanitizeRotation(req.body.rotation || 0);
-    const keyMap = getKeyMap();
+    const keyMap = resolveKeyMapForRequest(req);
     const calibration = req.body.calibration ? sanitizeCalibration(JSON.parse(String(req.body.calibration))) : DEFAULT_CALIBRATION;
 
     const items = [];
@@ -602,6 +717,113 @@ app.get('/api/answer-key/template', (_req, res) => {
   res.send(JSON.stringify(template, null, 2));
 });
 
+app.get('/api/answer-key', (_req, res) => {
+  const keys = readAnswerKeysStore().map(toAnswerKeySummary);
+  return res.json({ keys });
+});
+
+app.get('/api/answer-key/:id', (req, res) => {
+  const item = findStoredAnswerKeyById(req.params.id);
+  if (!item) {
+    return res.status(404).json({ error: 'Answer key not found' });
+  }
+
+  return res.json({
+    id: item.id,
+    name: item.name,
+    answers: toAnswerArray(item.keyMap || {}, Math.max(35, Object.keys(item.keyMap || {}).length)),
+    count: Object.keys(item.keyMap || {}).length,
+    created_at: item.createdAt,
+    updated_at: item.updatedAt,
+  });
+});
+
+app.post('/api/answer-key', (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ error: 'Nama kunci jawaban wajib diisi' });
+    }
+
+    const keyMap = extractKeyMapFromPayload(req.body);
+    const totalQuestions = Number(req.body?.total || Math.max(35, Object.keys(keyMap).length || 35));
+    const validation = validateAnswerKey(keyMap, totalQuestions);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Invalid answer key',
+        errors: validation.errors,
+        warnings: validation.warnings,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const record = {
+      id: `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+      name,
+      keyMap,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const existing = readAnswerKeysStore();
+    existing.unshift(record);
+    writeAnswerKeysStore(existing);
+
+    return res.status(201).json({ success: true, key: toAnswerKeySummary(record) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to save answer key' });
+  }
+});
+
+app.put('/api/answer-key/:id', (req, res) => {
+  try {
+    const items = readAnswerKeysStore();
+    const idx = items.findIndex((item) => String(item.id) === String(req.params.id));
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Answer key not found' });
+    }
+
+    const name = String(req.body?.name || items[idx].name || '').trim();
+    if (!name) {
+      return res.status(400).json({ error: 'Nama kunci jawaban wajib diisi' });
+    }
+
+    const keyMap = extractKeyMapFromPayload(req.body);
+    const totalQuestions = Number(req.body?.total || Math.max(35, Object.keys(keyMap).length || 35));
+    const validation = validateAnswerKey(keyMap, totalQuestions);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Invalid answer key',
+        errors: validation.errors,
+        warnings: validation.warnings,
+      });
+    }
+
+    items[idx] = {
+      ...items[idx],
+      name,
+      keyMap,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeAnswerKeysStore(items);
+    return res.json({ success: true, key: toAnswerKeySummary(items[idx]) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to update answer key' });
+  }
+});
+
+app.delete('/api/answer-key/:id', (req, res) => {
+  const items = readAnswerKeysStore();
+  const next = items.filter((item) => String(item.id) !== String(req.params.id));
+  if (next.length === items.length) {
+    return res.status(404).json({ error: 'Answer key not found' });
+  }
+
+  writeAnswerKeysStore(next);
+  return res.json({ success: true });
+});
+
 app.post('/api/answer-key/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -651,6 +873,23 @@ app.get('/api/answer-key/current', (_req, res) => {
     count: total,
     preview: Object.fromEntries(Object.entries(keyObj).slice(0, 5)),
   });
+});
+
+app.use((err, _req, res, _next) => {
+  const message = String(err?.message || 'Request failed');
+  if (message.toLowerCase().includes('unexpected end of form')) {
+    return res.status(400).json({ error: 'Upload tidak lengkap. Silakan ulangi unggah file.' });
+  }
+
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File terlalu besar. Maksimum 10MB per file.' });
+  }
+
+  if (err?.code === 'LIMIT_FILE_COUNT') {
+    return res.status(400).json({ error: 'Jumlah file melebihi batas maksimum.' });
+  }
+
+  return res.status(500).json({ error: message });
 });
 
 app.listen(PORT, () => {
