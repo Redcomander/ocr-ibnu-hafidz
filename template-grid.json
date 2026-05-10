@@ -1,0 +1,78 @@
+{
+  "name": "FORMAT_LJK_PSAJ_9.pdf",
+  "total": 50,
+  "optionChoices": "ABCD",
+  "tableCount": 0,
+  "questionsPerTable": [],
+  "calibration": {
+    "markedThreshold": 45,
+    "confidenceGap": 2.5,
+    "questionColW": 0.1,
+    "centerPadX": 0.15,
+    "centerPadY": 0.2,
+    "optionChoices": "ABCD",
+    "blocks": [
+      {
+        "startQ": 1,
+        "count": 10,
+        "x": 0.12,
+        "y": 0.37,
+        "w": 0.27,
+        "h": 0.32,
+        "questionColW": 0.1,
+        "rowTop": 0,
+        "rowBottom": 1
+      },
+      {
+        "startQ": 11,
+        "count": 10,
+        "x": 0.43,
+        "y": 0.37,
+        "w": 0.27,
+        "h": 0.32,
+        "questionColW": 0.1,
+        "rowTop": 0,
+        "rowBottom": 1
+      },
+      {
+        "startQ": 21,
+        "count": 10,
+        "x": 0.73,
+        "y": 0.37,
+        "w": 0.23,
+        "h": 0.32,
+        "questionColW": 0.1,
+        "rowTop": 0,
+        "rowBottom": 1
+      },
+      {
+        "startQ": 31,
+        "count": 10,
+        "x": 0.12,
+        "y": 0.68,
+        "w": 0.27,
+        "h": 0.28,
+        "questionColW": 0.1,
+        "rowTop": 0,
+        "rowBottom": 1
+      },
+      {
+        "startQ": 41,
+        "count": 10,
+        "x": 0.43,
+        "y": 0.68,
+        "w": 0.27,
+        "h": 0.28,
+        "questionColW": 0.1,
+        "rowTop": 0,
+        "rowBottom": 1
+      }
+    ]
+  },
+  "registeredAt": "2026-05-10T05:21:54.177Z",
+  "detection": {
+    "source": "pdf-text",
+    "detectedQuestionCount": 50,
+    "detectedMaxQuestion": 50
+  }
+}

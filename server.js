@@ -22,6 +22,7 @@ const {
 } = require('./lib/ocr-core');
 const {
   parseDocxTemplate,
+  parsePdfTemplate,
   buildCalibrationFromAnalysis,
   readStoredTemplate,
   writeStoredTemplate,
@@ -924,12 +925,17 @@ app.post('/api/template/register', upload.single('file'), async (req, res) => {
     const isDocx =
       mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       filename.toLowerCase().endsWith('.docx');
+    const isPdf =
+      mime === 'application/pdf' ||
+      filename.toLowerCase().endsWith('.pdf');
 
-    if (!isDocx) {
-      return res.status(400).json({ error: 'Hanya file DOCX yang didukung untuk template.' });
+    if (!isDocx && !isPdf) {
+      return res.status(400).json({ error: 'Template hanya mendukung file DOCX atau PDF.' });
     }
 
-    const analysis = await parseDocxTemplate(req.file.buffer);
+    const analysis = isPdf
+      ? await parsePdfTemplate(req.file.buffer)
+      : await parseDocxTemplate(req.file.buffer);
 
     const record = {
       name: filename,
