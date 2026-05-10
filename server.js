@@ -46,6 +46,9 @@ const templateGridPath = path.resolve(__dirname, 'template-grid.json');
 const AUTH_MODE = String(process.env.OCR_AUTH_MODE || 'none').trim().toLowerCase();
 const MAIN_JWT_SECRET = String(process.env.MAIN_JWT_SECRET || '').trim();
 const MAIN_AUTH_ME_URL = String(process.env.MAIN_AUTH_ME_URL || '').trim();
+// Main Go backend — used to persist answer keys so they survive OCR service resets.
+const MAIN_API_URL = String(process.env.MAIN_API_URL || '').trim();
+const OCR_SERVICE_TOKEN = String(process.env.OCR_SERVICE_TOKEN || '').trim();
 const PUBLIC_API_PATHS = new Set(['/api/health', '/api/capabilities', '/api/auth/status']);
 
 function parseBearerToken(authHeader) {
@@ -541,6 +544,113 @@ async function acquireFromWindowsScanner(scannerDeviceId) {
   }
 }
 
+// ── Main API sync helpers ────────────────────────────────────────────────────
+// These functions keep the Go backend DB in sync with the local answer_keys.json.
+// When MAIN_API_URL + OCR_SERVICE_TOKEN are configured, answer keys are persisted
+// to the Go backend database so a hard reset of this service doesn't lose history.
+
+function mainApiHeaders() {
+  return { 'Content-Type': 'application/json', 'X-Service-Token': OCR_SERVICE_TOKEN };
+}
+
+async function syncAnswerKeyToMain(record) {
+  if (!MAIN_API_URL || !OCR_SERVICE_TOKEN) return;
+  try {
+    const { mainApiId, name, keyMap, createdAt, updatedAt } = record;
+    const body = JSON.stringify({ name, answers: keyMap, total: Object.keys(keyMap || {}).length });
+
+    if (mainApiId) {
+      // Update existing record in Go backend
+      await fetch(`${MAIN_API_URL}/ocr-service/answer-keys/${mainApiId}`, {
+        method: 'PUT',
+        headers: mainApiHeaders(),
+        body,
+      });
+    } else {
+      // Create new record in Go backend and store returned ID
+      const resp = await fetch(`${MAIN_API_URL}/ocr-service/answer-keys`, {
+        method: 'POST',
+        headers: mainApiHeaders(),
+        body,
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const goId = data?.key?.id;
+        if (goId) {
+          // Persist the Go backend ID back into the local store
+          const items = readAnswerKeysStore();
+          const idx = items.findIndex((i) => i.id === record.id);
+          if (idx !== -1) {
+            items[idx].mainApiId = String(goId);
+            writeAnswerKeysStore(items);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[ocr-sync] syncAnswerKeyToMain failed:', err.message);
+  }
+}
+
+async function deleteAnswerKeyFromMain(mainApiId) {
+  if (!MAIN_API_URL || !OCR_SERVICE_TOKEN || !mainApiId) return;
+  try {
+    await fetch(`${MAIN_API_URL}/ocr-service/answer-keys/${mainApiId}`, {
+      method: 'DELETE',
+      headers: mainApiHeaders(),
+    });
+  } catch (err) {
+    console.error('[ocr-sync] deleteAnswerKeyFromMain failed:', err.message);
+  }
+}
+
+async function restoreAnswerKeysFromMain() {
+  if (!MAIN_API_URL || !OCR_SERVICE_TOKEN) return;
+  if (fs.existsSync(answerKeysPath)) {
+    try {
+      const raw = fs.readFileSync(answerKeysPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        console.log(`[ocr-sync] Local answer_keys.json has ${parsed.length} entries — skipping restore.`);
+        return;
+      }
+    } catch {
+      // fall through to restore
+    }
+  }
+
+  console.log('[ocr-sync] Local answer_keys.json is empty — restoring from Go backend...');
+  try {
+    const resp = await fetch(`${MAIN_API_URL}/ocr-service/answer-keys`, {
+      headers: mainApiHeaders(),
+    });
+    if (!resp.ok) {
+      console.error(`[ocr-sync] restoreAnswerKeysFromMain: Go backend returned ${resp.status}`);
+      return;
+    }
+    const data = await resp.json();
+    const remoteKeys = Array.isArray(data?.keys) ? data.keys : [];
+    if (remoteKeys.length === 0) {
+      console.log('[ocr-sync] No answer keys found in Go backend.');
+      return;
+    }
+
+    const restored = remoteKeys.map((k) => ({
+      id: `restored_${k.id}_${Date.now()}`,
+      mainApiId: String(k.id),
+      name: k.name,
+      keyMap: k.key_map || {},
+      createdAt: k.created_at,
+      updatedAt: k.updated_at,
+    }));
+
+    writeAnswerKeysStore(restored);
+    console.log(`[ocr-sync] Restored ${restored.length} answer keys from Go backend.`);
+  } catch (err) {
+    console.error('[ocr-sync] restoreAnswerKeysFromMain failed:', err.message);
+  }
+}
+
 app.use(express.json());
 app.use(cors());
 app.use(authMiddleware);
@@ -796,6 +906,9 @@ app.post('/api/answer-key', (req, res) => {
     existing.unshift(record);
     writeAnswerKeysStore(existing);
 
+    // Async sync to Go backend — fire and forget (updates mainApiId in local store)
+    syncAnswerKeyToMain(record).catch(() => {});
+
     return res.status(201).json({ success: true, key: toAnswerKeySummary(record) });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to save answer key' });
@@ -835,6 +948,10 @@ app.put('/api/answer-key/:id', (req, res) => {
     };
 
     writeAnswerKeysStore(items);
+
+    // Async sync to Go backend
+    syncAnswerKeyToMain(items[idx]).catch(() => {});
+
     return res.json({ success: true, key: toAnswerKeySummary(items[idx]) });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to update answer key' });
@@ -843,12 +960,19 @@ app.put('/api/answer-key/:id', (req, res) => {
 
 app.delete('/api/answer-key/:id', (req, res) => {
   const items = readAnswerKeysStore();
+  const target = items.find((item) => String(item.id) === String(req.params.id));
   const next = items.filter((item) => String(item.id) !== String(req.params.id));
   if (next.length === items.length) {
     return res.status(404).json({ error: 'Answer key not found' });
   }
 
   writeAnswerKeysStore(next);
+
+  // Async sync to Go backend
+  if (target?.mainApiId) {
+    deleteAnswerKeyFromMain(target.mainApiId).catch(() => {});
+  }
+
   return res.json({ success: true });
 });
 
@@ -984,4 +1108,8 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`OCR web server running at http://localhost:${PORT}`);
+  // Restore answer keys from Go backend if local store is empty
+  restoreAnswerKeysFromMain().catch((err) => {
+    console.error('[ocr-sync] Startup restore failed:', err.message);
+  });
 });
