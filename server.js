@@ -20,6 +20,12 @@ const {
   parseAnswerKeyFromText,
   validateAnswerKey,
 } = require('./lib/ocr-core');
+const {
+  parseDocxTemplate,
+  buildCalibrationFromAnalysis,
+  readStoredTemplate,
+  writeStoredTemplate,
+} = require('./lib/template');
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +41,7 @@ const upload = multer({
 const PORT = process.env.PORT || 3099;
 const defaultKeyPath = path.resolve(__dirname, 'answer_key.json');
 const answerKeysPath = path.resolve(__dirname, 'answer_keys.json');
+const templateGridPath = path.resolve(__dirname, 'template-grid.json');
 const AUTH_MODE = String(process.env.OCR_AUTH_MODE || 'none').trim().toLowerCase();
 const MAIN_JWT_SECRET = String(process.env.MAIN_JWT_SECRET || '').trim();
 const MAIN_AUTH_ME_URL = String(process.env.MAIN_AUTH_ME_URL || '').trim();
@@ -894,6 +901,62 @@ app.get('/api/answer-key/current', (_req, res) => {
     count: total,
     preview: Object.fromEntries(Object.entries(keyObj).slice(0, 5)),
   });
+});
+
+// --- Template Grid Endpoints ---
+
+app.get('/api/template/current', (_req, res) => {
+  const template = readStoredTemplate(templateGridPath);
+  if (!template) {
+    return res.json({ registered: false, template: null });
+  }
+  return res.json({ registered: true, template });
+});
+
+app.post('/api/template/register', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filename = String(req.file.originalname || 'template');
+    const mime = String(req.file.mimetype || '');
+    const isDocx =
+      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      filename.toLowerCase().endsWith('.docx');
+
+    if (!isDocx) {
+      return res.status(400).json({ error: 'Hanya file DOCX yang didukung untuk template.' });
+    }
+
+    const analysis = await parseDocxTemplate(req.file.buffer);
+
+    const record = {
+      name: filename,
+      total: analysis.total,
+      optionChoices: analysis.optionChoices,
+      tableCount: analysis.tableCount,
+      questionsPerTable: analysis.questionsPerTable,
+      calibration: analysis.calibration,
+      registeredAt: new Date().toISOString(),
+    };
+
+    writeStoredTemplate(templateGridPath, record);
+
+    return res.json({
+      success: true,
+      template: record,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Template registration failed' });
+  }
+});
+
+app.delete('/api/template/current', (_req, res) => {
+  if (fs.existsSync(templateGridPath)) {
+    fs.unlinkSync(templateGridPath);
+  }
+  return res.json({ success: true });
 });
 
 app.use((err, _req, res, _next) => {
